@@ -1,0 +1,11 @@
+aiogram
+beanie
+docxtpl
+fastapi
+google_api_python_client
+openpyxl
+pandas
+pydantic
+pydantic_settings
+pymongo
+uvicorn

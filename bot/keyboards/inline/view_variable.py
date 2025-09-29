@@ -1,0 +1,25 @@
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from bot.keyboards.inline.button import SavedDataCallback, MainCallback
+
+
+def view_variable_keyboard(position: int):
+    kb = InlineKeyboardBuilder()
+
+    kb.button(
+        text="☠️ Видалити",
+        callback_data=SavedDataCallback(action="delete", q=str(position)).pack(),
+    )
+
+    kb.button(
+        text="⬅️ Назад",
+        callback_data=SavedDataCallback(action="goto", q=str(position)).pack(),
+    )
+
+    kb.button(
+        text="❌ Закрити", callback_data=MainCallback(action="close", q="").pack()
+    )
+
+    kb.adjust(2)
+
+    return kb.as_markup()
