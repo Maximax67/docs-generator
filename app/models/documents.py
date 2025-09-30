@@ -1,18 +1,17 @@
-from typing import List, Dict
+from typing import List, Dict, Union
 from pydantic import BaseModel
 from app.models.google import DriveFile
-from app.models.variables import Variable
+from app.models.variables import ConstantVariable, MultichoiceVariable, PlainVariable
 
 
 class DocumentVariables(BaseModel):
-    variables: List[Variable]
+    variables: List[Union[PlainVariable, MultichoiceVariable, ConstantVariable]]
+    unknown_variables: List[str]
     is_valid: bool
 
 
-class DocumentDetails(BaseModel):
+class DocumentDetails(DocumentVariables):
     file: DriveFile
-    variables: List[Variable]
-    is_valid: bool
 
 
 class GenerateDocumentRequest(BaseModel):

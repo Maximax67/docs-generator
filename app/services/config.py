@@ -1,24 +1,22 @@
-from typing import Dict, List, Optional
+from io import BytesIO
+from typing import Dict, Optional, Union
 from datetime import datetime, timedelta
 import re
 import pandas as pd
 
-from docxtpl import RichText
-
 from app.enums import ConfigSheetName, VariableType
-from app.services.google_drive import export_config
+from app.services.google_drive import download_file
 from app.settings import settings
 from app.models.validation import ValidationRule
 from app.models.variables import (
     PlainVariable,
     MultichoiceVariable,
     ConstantVariable,
-    Variable,
 )
 
 _validation_rules: Dict[str, ValidationRule] = {}
-_variables: Dict[str, Variable] = {}
-_preview_variables: Dict[str, RichText] = {}
+_variables: Dict[str, Union[PlainVariable, MultichoiceVariable, ConstantVariable]] = {}
+_preview_variables: Dict[str, str] = {}
 _last_update_time: Optional[datetime] = None
 
 
@@ -34,10 +32,17 @@ def _parse_bool_emoji(value: str) -> bool:
     return value.strip() == "✔️"
 
 
-def _det_config_dfs() -> Dict[str, List[List[str]]]:
-    config_content = export_config()
-    file = pd.ExcelFile(config_content)
+def _det_config_dfs() -> Dict[ConfigSheetName, pd.DataFrame]:
+    config_content = BytesIO()
 
+    download_file(
+        settings.CONFIG_SPREADSHEET_ID,
+        config_content,
+        export_mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    config_content.seek(0)
+    file = pd.ExcelFile(config_content)
     config_dfs: Dict[ConfigSheetName, pd.DataFrame] = {}
 
     for sheet_name in ConfigSheetName:
@@ -80,7 +85,10 @@ def update_cache() -> None:
             is_valid=_is_valid_regex(regex),
         )
 
-    variables: Dict[str, Variable] = {}
+    variables: Dict[
+        str, Union[PlainVariable, MultichoiceVariable, ConstantVariable]
+    ] = {}
+
     variables_df = config_dfs[ConfigSheetName.VARIABLES]
     for _, row in variables_df.iterrows():
         variable_name = row["Variable"]
@@ -101,7 +109,7 @@ def update_cache() -> None:
             validation_rules=populated_rules,
             allow_skip=_parse_bool_emoji(str(row["Allow skip"])),
             allow_save=_parse_bool_emoji(str(row["Allow save"])),
-            type=VariableType.PLAIN.value,
+            type=VariableType.PLAIN,
         )
 
     multichoice_df = config_dfs[ConfigSheetName.MULTICHOICE_VARIABLES]
@@ -124,10 +132,14 @@ def update_cache() -> None:
                 allow_skip=_parse_bool_emoji(str(row["Allow skip"])),
                 allow_save=_parse_bool_emoji(str(row["Allow save"])),
                 choices=[choice] if choice else [],
-                type=VariableType.MULTICHOICE.value,
+                type=VariableType.MULTICHOICE,
             )
         elif current_var and choice:
-            variables[current_var].choices.append(choice)
+            mult_var = variables[current_var]
+            if not isinstance(mult_var, MultichoiceVariable):
+                raise Exception("Not a Multichoice variable")
+
+            mult_var.choices.append(choice)
 
     constants_df = config_dfs[ConfigSheetName.CONSTANTS]
     for _, row in constants_df.iterrows():
@@ -143,7 +155,7 @@ def update_cache() -> None:
             value=value,
             allow_skip=False,
             allow_save=False,
-            type=VariableType.CONSTANT.value,
+            type=VariableType.CONSTANT,
         )
 
     _validation_rules = rules
@@ -153,12 +165,12 @@ def update_cache() -> None:
     for key, var in variables.items():
         value = settings.DEFAULT_VARIABLE_VALUE
 
-        if var.type == VariableType.CONSTANT.value:
+        if var.type == VariableType.CONSTANT:
             value = var.value
-        elif var.type == VariableType.PLAIN.value:
+        elif var.type == VariableType.PLAIN:
             if var.example:
                 value = var.example
-        elif var.type == VariableType.MULTICHOICE.value:
+        elif var.type == VariableType.MULTICHOICE:
             if var.choices:
                 value = var.choices[0]
 
@@ -181,7 +193,9 @@ def get_validation_rules_dict() -> Dict[str, ValidationRule]:
     return _validation_rules
 
 
-def get_variables_dict() -> Dict[str, Variable]:
+def get_variables_dict() -> (
+    Dict[str, Union[PlainVariable, MultichoiceVariable, ConstantVariable]]
+):
     update_cache_if_required()
 
     return _variables

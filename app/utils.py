@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from fastapi import HTTPException
 from pymongo import ReturnDocument
 
@@ -63,9 +63,13 @@ def ensure_folder(mime_type: str) -> None:
 
 
 async def find_and_update_user(
-    telegram_id: int, update_query: dict, return_document=ReturnDocument.AFTER
-):
-    updated_user = await User.get_pymongo_collection().find_one_and_update(
+    telegram_id: int,
+    update_query: Dict[str, Any],
+    return_document: bool = ReturnDocument.AFTER,
+) -> User:
+    updated_user: Optional[
+        User
+    ] = await User.get_pymongo_collection().find_one_and_update(
         {"telegram_id": telegram_id},
         update_query,
         return_document=return_document,

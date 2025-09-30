@@ -1,11 +1,12 @@
 from typing import Optional
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.services.variables import is_variable_value_valid
-from bot.keyboards.inline.button import GenerationCallback, MainCallback
+from bot.keyboards.callback import GenerationCallback, MainCallback
 
 
-def text_input(saved_input: Optional[str], is_skippable: bool):
+def text_input(saved_input: Optional[str], is_skippable: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
     if saved_input and is_variable_value_valid(saved_input):

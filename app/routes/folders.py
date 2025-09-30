@@ -1,22 +1,23 @@
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.dependencies import verify_token
 from app.models.common_responses import DetailResponse
 from app.services.google_drive import (
     format_drive_file_metadata,
+    format_drive_folder_metadata,
     get_folder_contents,
     get_accessible_folders,
-    get_file_metadata,
+    get_drive_item_metadata,
 )
-from app.models.google import FolderContents, DriveFolder, FolderListResponse
-from app.models.database import TrustedFolder
+from app.models.google import FolderContents, FolderListResponse
+from app.models.database import PinnedFolder
 from app.utils import ensure_folder
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
 
-common_responses = {
+common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     404: {
         "description": "Folder not found or access denied",
         "content": {
@@ -37,57 +38,57 @@ common_responses = {
 
 
 @router.get("", response_model=FolderListResponse)
-async def list_folders(trusted: Optional[bool] = Query(None)) -> FolderListResponse:
+async def list_folders(pinned: Optional[bool] = Query(None)) -> FolderListResponse:
     folders = get_accessible_folders()
-    trusted_folder_objs = await TrustedFolder.find_all().to_list()
-    trusted_ids = {f.folder_id for f in trusted_folder_objs}
+    pinned_folder_objs = await PinnedFolder.find_all().to_list()
+    pinned_ids = {f.folder_id for f in pinned_folder_objs}
     result = []
 
     for f in folders:
-        is_trusted = f["id"] in trusted_ids
-        if trusted is None or trusted == is_trusted:
-            folder = format_drive_file_metadata(f)
-            folder = DriveFolder(**folder.model_dump(), is_trusted=is_trusted)
+        is_pinned = f["id"] in pinned_ids
+        if pinned is None or pinned == is_pinned:
+            folder = format_drive_folder_metadata(f)
+            folder.is_pinned = is_pinned
             result.append(folder)
 
     return FolderListResponse(folders=result)
 
 
 @router.post(
-    "/refresh_trusted",
+    "/refresh_pinned",
     response_model=DetailResponse,
     dependencies=[Depends(verify_token)],
 )
-async def refresh_trusted_folders() -> Dict[str, str]:
+async def refresh_pinned_folders() -> DetailResponse:
     folders = get_accessible_folders()
     folder_ids = {f["id"] for f in folders}
-    trusted_folder_objs = await TrustedFolder.find_all().to_list()
+    pinned_folder_objs = await PinnedFolder.find_all().to_list()
     removed = 0
 
-    for trusted in trusted_folder_objs:
-        if trusted.folder_id not in folder_ids:
-            await trusted.delete()
+    for pinned in pinned_folder_objs:
+        if pinned.folder_id not in folder_ids:
+            await pinned.delete()
             removed += 1
 
-    return DetailResponse(detail=f"Refreshed trusted list. Removed {removed} records")
+    return DetailResponse(detail=f"Refreshed pinned list. Removed {removed} records")
 
 
 @router.get("/{folder_id}", responses=common_responses)
 async def get_folder(folder_id: str) -> FolderContents:
     try:
-        current_folder = get_file_metadata(folder_id)
+        current_folder_metadata = get_drive_item_metadata(folder_id)
     except Exception:
         raise HTTPException(status_code=404, detail="Folder not found or access denied")
 
-    ensure_folder(current_folder["mimeType"])
+    ensure_folder(current_folder_metadata["mimeType"])
 
     try:
         contents = get_folder_contents(folder_id)
     except Exception:
         raise HTTPException(status_code=404, detail="Folder not found or access denied")
 
-    trusted_folder_objs = await TrustedFolder.find_all().to_list()
-    trusted_ids = {f.folder_id for f in trusted_folder_objs}
+    pinned_folder_objs = await PinnedFolder.find_all().to_list()
+    pinned_ids = {f.folder_id for f in pinned_folder_objs}
 
     folders = []
     documents = []
@@ -96,68 +97,66 @@ async def get_folder(folder_id: str) -> FolderContents:
         mime_type = item["mimeType"]
 
         if mime_type == "application/vnd.google-apps.folder":
-            folder = format_drive_file_metadata(item)
-            is_trusted = folder.id in trusted_ids
-            folders.append(DriveFolder(**folder.model_dump(), is_trusted=is_trusted))
+            folder = format_drive_folder_metadata(item)
+            folder.is_pinned = folder.id in pinned_ids
+            folders.append(folder)
         elif mime_type in DOC_COMPATIBLE_MIME_TYPES:
             documents.append(format_drive_file_metadata(item))
 
-    current_is_trusted = current_folder["id"] in trusted_ids
+    current_folder = format_drive_folder_metadata(current_folder_metadata)
+    current_folder.is_pinned = current_folder.id in pinned_ids
 
     return FolderContents(
         folders=folders,
         documents=documents,
-        current_folder=DriveFolder(
-            **format_drive_file_metadata(current_folder).model_dump(),
-            is_trusted=current_is_trusted,
-        ),
+        current_folder=current_folder,
     )
 
 
 @router.post(
-    "/{folder_id}/trust",
+    "/{folder_id}/pin",
     response_model=DetailResponse,
     responses=common_responses,
     dependencies=[Depends(verify_token)],
 )
-async def trust_folder(folder_id: str):
+async def pin_folder(folder_id: str) -> DetailResponse:
     try:
-        metadata = get_file_metadata(folder_id)
+        metadata = get_drive_item_metadata(folder_id)
     except Exception:
         raise HTTPException(status_code=404, detail="Folder not found or access denied")
 
     ensure_folder(metadata["mimeType"])
 
-    existing = await TrustedFolder.find_one(TrustedFolder.folder_id == folder_id)
+    existing = await PinnedFolder.find_one(PinnedFolder.folder_id == folder_id)
     if existing:
-        raise HTTPException(status_code=400, detail="Folder already trusted")
+        raise HTTPException(status_code=400, detail="Folder already pinned")
 
-    folder = TrustedFolder(folder_id=folder_id)
+    folder = PinnedFolder(folder_id=folder_id)
     await folder.insert()
 
-    return DetailResponse(detail="Folder trusted")
+    return DetailResponse(detail="Folder pinned")
 
 
 @router.post(
-    "/{folder_id}/untrust",
+    "/{folder_id}/unpin",
     response_model=DetailResponse,
     responses={
         404: {
-            "description": "Folder not found in trusted list",
+            "description": "Folder not found in pinned list",
             "content": {
                 "application/json": {
-                    "example": {"detail": "Folder not found in trusted list"}
+                    "example": {"detail": "Folder not found in pinned list"}
                 }
             },
         },
     },
     dependencies=[Depends(verify_token)],
 )
-async def untrust_folder(folder_id: str):
-    deleted = await TrustedFolder.find_one(TrustedFolder.folder_id == folder_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Folder not found in trusted list")
+async def unpin_folder(folder_id: str) -> DetailResponse:
+    to_unpin = await PinnedFolder.find_one(PinnedFolder.folder_id == folder_id)
+    if not to_unpin:
+        raise HTTPException(status_code=404, detail="Folder not found in pinned list")
 
-    await deleted.delete()
+    await to_unpin.delete()
 
-    return DetailResponse(detail="Folder untrusted")
+    return DetailResponse(detail="Folder unpinned")

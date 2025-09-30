@@ -3,17 +3,21 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 
-class DriveFile(BaseModel):
+class DriveItem(BaseModel):
     id: str
     name: str
     modified_time: datetime
     created_time: datetime
     web_view_link: Optional[str] = None
+
+
+class DriveFile(DriveItem):
     mime_type: str
+    size: Optional[int]
 
 
-class DriveFolder(DriveFile):
-    is_trusted: bool
+class DriveFolder(DriveItem):
+    is_pinned: bool
 
 
 class FolderContents(BaseModel):

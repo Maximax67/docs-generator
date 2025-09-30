@@ -1,12 +1,11 @@
 import re
-from typing import List, Optional, Tuple
+from typing import List, Optional, Union
 
 from app.settings import settings
 from app.models.variables import (
     PlainVariable,
     MultichoiceVariable,
     ConstantVariable,
-    Variable,
 )
 from app.services.config import get_variables_dict
 from app.services.rules import validate_value
@@ -21,15 +20,21 @@ def is_variable_value_valid(value: str) -> bool:
     return bool(value) and len(value) < settings.MAX_VARIABLE_VALUE
 
 
-def get_variables() -> List[Variable]:
+def get_variables() -> (
+    List[Union[PlainVariable, MultichoiceVariable, ConstantVariable]]
+):
     return list(get_variables_dict().values())
 
 
-def get_variable(name: str) -> Optional[Variable]:
+def get_variable(
+    name: str,
+) -> Optional[Union[PlainVariable, MultichoiceVariable, ConstantVariable]]:
     return get_variables_dict().get(name)
 
 
-def validate_variable(variable: Variable, value: str) -> Optional[str]:
+def validate_variable(
+    variable: Union[PlainVariable, MultichoiceVariable, ConstantVariable], value: str
+) -> Optional[str]:
     if isinstance(variable, ConstantVariable):
         return "Cannot validate constant variable"
 

@@ -1,12 +1,12 @@
 import os
 from typing import Dict, List, Optional, Tuple, Union
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InaccessibleMessage
 from aiogram.fsm.context import FSMContext
 
 from app.settings import settings
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.enums import VariableType
-from app.models.database import Feedback, Result, TrustedFolder, User
+from app.models.database import Feedback, Result, PinnedFolder, User
 from app.models.google import DriveFolder
 from app.models.variables import MultichoiceVariable, PlainVariable
 from app.services.documents import (
@@ -16,15 +16,15 @@ from app.services.documents import (
 )
 from app.services.google_drive import (
     format_drive_file_metadata,
+    format_drive_folder_metadata,
     get_accessible_folders,
-    get_file_metadata,
+    get_drive_item_metadata,
     get_folder_contents,
 )
 
 from app.services.variables import is_variable_value_valid, validate_variable
 from app.utils import format_document_user_mention
-from bot.keyboards.inline.button import GenerationCallback
-from bot.keyboards.inline.close_button import close_btn
+from bot.keyboards.callback import GenerationCallback
 from bot.keyboards.inline.document_preview import document_preview_keyboard
 from bot.keyboards.inline.document_selector import document_selector_keyboard
 from bot.keyboards.inline.multichoice_input import multichoice_input
@@ -35,7 +35,12 @@ from bot.utils.create_user import create_user
 from bot.utils.delete_last_message import delete_last_message
 
 
-async def initial_generation_handler(message: Message, state: FSMContext, user_id: int):
+async def initial_generation_handler(
+    message: Message, state: FSMContext, user_id: int
+) -> None:
+    if not message.from_user:
+        return
+
     await delete_last_message(message, state)
     await state.clear()
 
@@ -52,17 +57,17 @@ async def initial_generation_handler(message: Message, state: FSMContext, user_i
         return
 
     folders = get_accessible_folders()
-    trusted_folder_objs = await TrustedFolder.find_all().to_list()
-    trusted_ids = {f.folder_id for f in trusted_folder_objs}
-    trusted_folders: List[DriveFolder] = []
+    pinned_folder_objs = await PinnedFolder.find_all().to_list()
+    pinned_ids = {f.folder_id for f in pinned_folder_objs}
+    pinned_folders: List[DriveFolder] = []
 
     for f in folders:
-        if f["id"] in trusted_ids:
-            folder = format_drive_file_metadata(f)
-            folder = DriveFolder(**folder.model_dump(), is_trusted=True)
-            trusted_folders.append(folder)
+        if f["id"] in pinned_ids:
+            folder = format_drive_folder_metadata(f)
+            folder.is_pinned = True
+            pinned_folders.append(folder)
 
-    if not len(trusted_folders):
+    if not len(pinned_folders):
         await message.answer("Шаблони документів не завантажені в систему")
         return
 
@@ -70,13 +75,16 @@ async def initial_generation_handler(message: Message, state: FSMContext, user_i
 
     answer = await message.answer(
         "Обери категорію документів:",
-        reply_markup=document_selector_keyboard(trusted_folders, [], False),
+        reply_markup=document_selector_keyboard(pinned_folders, [], False),
     )
 
     await state.update_data(last_message_id=answer.message_id, selection_history=[])
 
 
-async def generation_handler(message: Message, state: FSMContext):
+async def generation_handler(message: Message, state: FSMContext) -> None:
+    if not message.from_user:
+        return
+
     await initial_generation_handler(message, state, message.from_user.id)
 
 
@@ -85,20 +93,23 @@ async def selection_menu(
     state: FSMContext,
     folder_id: str,
     add_record: bool,
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     current_state = await state.get_state()
     if current_state != GenerationStates.selecting:
         await state.set_state(GenerationStates.selecting)
 
-    current_folder_metadata = get_file_metadata(folder_id)
+    current_folder_metadata = get_drive_item_metadata(folder_id)
 
     if current_folder_metadata["mimeType"] != "application/vnd.google-apps.folder":
         raise ValueError("Not a folder")
 
     contents = get_folder_contents(folder_id)
 
-    trusted_folder_objs = await TrustedFolder.find_all().to_list()
-    trusted_ids = {str(f.folder_id) for f in trusted_folder_objs}
+    pinned_folder_objs = await PinnedFolder.find_all().to_list()
+    pinned_ids = {str(f.folder_id) for f in pinned_folder_objs}
 
     folders = []
     documents = []
@@ -107,22 +118,19 @@ async def selection_menu(
         mime_type = item["mimeType"]
 
         if mime_type == "application/vnd.google-apps.folder":
-            if item["id"] not in trusted_ids:
+            if item["id"] not in pinned_ids:
                 folder = format_drive_file_metadata(item)
-                folders.append(DriveFolder(**folder.model_dump(), is_trusted=False))
+                folders.append(DriveFolder(**folder.model_dump(), is_pinned=False))
         elif mime_type in DOC_COMPATIBLE_MIME_TYPES:
             documents.append(format_drive_file_metadata(item))
 
-    selection_history: Optional[List[Tuple[str, str]]] = await state.get_value(
-        "selection_history"
+    selection_history: List[Tuple[str, str]] = await state.get_value(
+        "selection_history", []
     )
 
     if add_record:
         new_record = (folder_id, current_folder_metadata["name"])
-        if not selection_history:
-            selection_history = [new_record]
-        else:
-            selection_history.append(new_record)
+        selection_history.append(new_record)
 
     names = [record[1] for record in selection_history]
     back_available = bool(selection_history) and len(selection_history) > 0
@@ -144,7 +152,10 @@ async def selection_menu(
 
 async def generation_folder_selected_handler(
     callback: CallbackQuery, callback_data: GenerationCallback, state: FSMContext
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await delete_last_message(callback.message, state)
 
     folder_id = callback_data.q
@@ -154,7 +165,10 @@ async def generation_folder_selected_handler(
 
 async def selecting_menu_back_handler(
     callback: CallbackQuery, state: FSMContext, from_preview: bool
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     selection_history: Optional[List[Tuple[str, str]]] = await state.get_value(
         "selection_history"
     )
@@ -174,18 +188,22 @@ async def selecting_menu_back_handler(
     await selection_menu(callback, state, folder_id, False)
 
 
-async def generation_folder_back_handler(callback: CallbackQuery, state: FSMContext):
+async def generation_folder_back_handler(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
     await selecting_menu_back_handler(callback, state, False)
 
 
-async def preview_back_handler(callback: CallbackQuery, state: FSMContext):
-    print("FROM PREVIEW")
+async def preview_back_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await selecting_menu_back_handler(callback, state, True)
 
 
 async def show_selected_document(
     callback: CallbackQuery, state: FSMContext, document_id: str
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await delete_last_message(callback.message, state)
 
     processing_message = await callback.message.answer("⏳ Опрацьовую документ...")
@@ -196,7 +214,7 @@ async def show_selected_document(
 
     await state.set_state(GenerationStates.document_preview)
 
-    file_metadata = get_file_metadata(document_id)
+    file_metadata = get_drive_item_metadata(document_id)
     file = format_drive_file_metadata(file_metadata)
 
     if file.mime_type not in DOC_COMPATIBLE_MIME_TYPES:
@@ -208,7 +226,8 @@ async def show_selected_document(
         filename, _ = os.path.splitext(file.name)
 
     pdf_file_path, template_variables = generate_preview(file)
-    valid_variables, is_valid = validate_document_variables(template_variables)
+    valid_variables, unknown_variables = validate_document_variables(template_variables)
+    is_valid = len(unknown_variables) == 0
 
     required_variables: List[Union[PlainVariable, MultichoiceVariable]] = [
         var for var in valid_variables if var.type != VariableType.CONSTANT
@@ -238,7 +257,16 @@ async def show_selected_document(
             user_mention = format_document_user_mention(
                 user.telegram_id, user.first_name, user.last_name, user.username
             )
-            admin_message = await callback.message.bot.send_document(
+
+            message = callback.message
+            if message is None:
+                raise Exception("Message is None")
+
+            bot = message.bot
+            if bot is None:
+                raise Exception("Bot is None")
+
+            admin_message = await bot.send_document(
                 settings.ADMIN_CHAT_ID,
                 FSInputFile(pdf_file_path, filename=f"{filename}.pdf"),
                 message_thread_id=settings.ADMIN_DOCUMENTS_THREAD_ID,
@@ -248,7 +276,16 @@ async def show_selected_document(
         os.remove(pdf_file_path)
 
     if not required_variables_names:
-        context: Dict[str, str] = {var.variable: var.value for var in valid_variables}
+        context: Dict[str, str] = {}
+        for var in valid_variables:
+            if var.type == VariableType.MULTICHOICE:
+                value = var.choices[0]
+            elif var.type == VariableType.PLAIN:
+                value = var.example or settings.DEFAULT_VARIABLE_VALUE
+            else:
+                value = var.value
+
+            context[var.variable] = value
 
         await state.update_data(
             selected_document=document_id,
@@ -299,17 +336,20 @@ async def show_selected_document(
 
 async def generation_select_document_handler(
     callback: CallbackQuery, callback_data: GenerationCallback, state: FSMContext
-):
+) -> None:
     document_id = callback_data.q
     await show_selected_document(callback, state, document_id)
 
 
-async def generate_now_handler(callback: CallbackQuery, state: FSMContext):
+async def generate_now_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     filled_data: List[Optional[str]] = []
     required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
-        await state.get_value("required_variables")
+        await state.get_value("required_variables", [])
     )
-    saved_variables: Dict[str, str] = await state.get_value("saved_variables")
+    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
 
     for var in required_variables:
         filled_data.append(saved_variables[var.variable])
@@ -318,14 +358,14 @@ async def generate_now_handler(callback: CallbackQuery, state: FSMContext):
     await generate_document_result(callback.message, state, False)
 
 
-async def ask_next_variable(message: Message, state: FSMContext):
+async def ask_next_variable(message: Message, state: FSMContext) -> None:
     await delete_last_message(message, state)
 
     required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
-        await state.get_value("required_variables")
+        await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data")
-    saved_variables: Dict[str, str] = await state.get_value("saved_variables")
+    filled_data: List[str] = await state.get_value("filled_data", [])
+    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
 
     position_to_fill = len(filled_data)
     if position_to_fill >= len(required_variables):
@@ -365,22 +405,27 @@ async def ask_next_variable(message: Message, state: FSMContext):
 
 async def ask_next_variable_callback_handler(
     callback: CallbackQuery, state: FSMContext
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await ask_next_variable(callback.message, state)
 
 
 async def answer_multichoice_handler(
     callback: CallbackQuery, callback_data: GenerationCallback, state: FSMContext
-):
+) -> None:
     required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
-        await state.get_value("required_variables")
+        await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data")
+    filled_data: List[str] = await state.get_value("filled_data", [])
 
     variable = required_variables[len(filled_data)]
+    if not isinstance(variable, MultichoiceVariable):
+        raise ValueError("Not a multichoice variable")
 
     selected = callback_data.q
-    filled = None if selected == "s" else variable.choices[int(selected)]
+    filled = "" if selected == "s" else variable.choices[int(selected)]
 
     filled_data.append(filled)
 
@@ -390,18 +435,18 @@ async def answer_multichoice_handler(
 
 async def use_offered_text_input_handler(
     callback: CallbackQuery, callback_data: GenerationCallback, state: FSMContext
-):
+) -> None:
     required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
-        await state.get_value("required_variables")
+        await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data")
+    filled_data: List[str] = await state.get_value("filled_data", [])
 
     variable = required_variables[len(filled_data)]
 
     if callback_data.q == "skip":
-        filled = None
+        filled = ""
     else:
-        saved_variables: Dict[str, str] = await state.get_value("saved_variables")
+        saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
         filled = saved_variables[variable.variable]
 
     filled_data.append(filled)
@@ -410,16 +455,17 @@ async def use_offered_text_input_handler(
     await ask_next_variable_callback_handler(callback, state)
 
 
-async def answer_input_variable_handler(message: Message, state: FSMContext):
+async def answer_input_variable_handler(message: Message, state: FSMContext) -> None:
     required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
-        await state.get_value("required_variables")
+        await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data")
+    filled_data: List[str] = await state.get_value("filled_data", [])
 
     variable = required_variables[len(filled_data)]
+    input_text = message.text or ""
 
-    if is_variable_value_valid(message.text):
-        error = validate_variable(variable, message.text)
+    if is_variable_value_valid(input_text):
+        error = validate_variable(variable, input_text)
     else:
         error = "Ти ввів занадто довгий текст"
 
@@ -429,14 +475,16 @@ async def answer_input_variable_handler(message: Message, state: FSMContext):
         else:
             await message.answer(error)
     else:
-        filled_data.append(message.text)
+        filled_data.append(input_text)
         await state.update_data(filled_data=filled_data)
 
     await ask_next_variable(message, state)
 
 
-async def return_to_previous_input_handler(callback: CallbackQuery, state: FSMContext):
-    filled_data: List[str] = await state.get_value("filled_data")
+async def return_to_previous_input_handler(
+    callback: CallbackQuery, state: FSMContext
+) -> None:
+    filled_data: List[str] = await state.get_value("filled_data", [])
 
     if filled_data and len(filled_data) >= 1:
         filled_data.pop()
@@ -446,16 +494,22 @@ async def return_to_previous_input_handler(callback: CallbackQuery, state: FSMCo
         return
 
     document_id = await state.get_value("selected_document")
+    if document_id is None:
+        raise ValueError("Selected document is None")
+
     await show_selected_document(callback, state, document_id)
 
 
 async def generate_document_result(
     message: Message, state: FSMContext, already_generated: bool
-):
+) -> None:
     await state.set_state(GenerationStates.results)
 
     user_id = await state.get_value("user_id")
     document_id = await state.get_value("selected_document")
+
+    if document_id is None:
+        raise ValueError("Selected document is None")
 
     save_data_option = 0  # Do not suggest to save
 
@@ -476,18 +530,18 @@ async def generate_document_result(
         )
 
         required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
-            await state.get_value("required_variables")
+            await state.get_value("required_variables", [])
         )
 
-        filled_data: List[str] = await state.get_value("filled_data")
+        filled_data: List[str] = await state.get_value("filled_data", [])
 
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
         file = format_drive_file_metadata(file_metadata)
 
         if file.mime_type not in DOC_COMPATIBLE_MIME_TYPES:
             raise ValueError("Invalid document mime type")
 
-        saved_variables: Dict[str, str] = await state.get_value("saved_variables")
+        saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
 
         variables: Dict[str, str] = {}
         for i, variable in enumerate(required_variables):
@@ -516,7 +570,12 @@ async def generate_document_result(
             user_mention = format_document_user_mention(
                 user.telegram_id, user.first_name, user.last_name, user.username
             )
-            admin_message = await message.bot.send_document(
+
+            bot = message.bot
+            if bot is None:
+                raise Exception("Bot is None")
+
+            admin_message = await bot.send_document(
                 settings.ADMIN_CHAT_ID,
                 FSInputFile(pdf_file_path, filename=f"{filename}.pdf"),
                 message_thread_id=settings.ADMIN_DOCUMENTS_THREAD_ID,
@@ -540,7 +599,7 @@ async def generate_document_result(
     success_message = await message.answer(
         "Документ успішно згенеровано. "
         "Якщо сподобався бот, або маєш ідеї для покращення, надішли їх реплаєм на це повідомлення! "
-        "Адміністратори отримають твоє повідомлення",
+        "Адміністратори його отримають",
     )
 
     if save_data_option == 0:
@@ -565,13 +624,16 @@ async def generate_document_result(
     ).insert()
 
 
-async def save_variables_handler(callback: CallbackQuery, state: FSMContext):
+async def save_variables_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await delete_last_message(callback.message, state)
 
     required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
-        await state.get_value("required_variables")
+        await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data")
+    filled_data: List[str] = await state.get_value("filled_data", [])
 
     user = await User.find_one(User.telegram_id == callback.from_user.id)
     if not user:

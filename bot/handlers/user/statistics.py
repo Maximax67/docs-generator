@@ -4,7 +4,10 @@ from app.models.database import Result, User
 from bot.utils.delete_last_message import delete_last_message
 
 
-async def statistics_handler(message: Message, state: FSMContext):
+async def statistics_handler(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
     await delete_last_message(message, state)
     await state.clear()
 

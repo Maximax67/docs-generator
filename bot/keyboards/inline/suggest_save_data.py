@@ -1,10 +1,10 @@
-from typing import Optional
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.keyboards.inline.button import GenerationCallback, MainCallback
+from bot.keyboards.callback import GenerationCallback, MainCallback
 
 
-def suggest_save_data():
+def suggest_save_data() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
     kb.button(

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
@@ -12,8 +12,16 @@ from app.models.validation import (
     ValidationRule,
     ValidationRequest,
 )
-from app.models.variables import ConstantVariable, Variable, VariablesResponse
-from app.services.google_drive import format_drive_file_metadata, get_file_metadata
+from app.models.variables import (
+    ConstantVariable,
+    MultichoiceVariable,
+    PlainVariable,
+    VariablesResponse,
+)
+from app.services.google_drive import (
+    format_drive_file_metadata,
+    get_drive_item_metadata,
+)
 from app.services.config import update_cache
 from app.services.rules import (
     get_validation_rules,
@@ -21,16 +29,22 @@ from app.services.rules import (
     validate_value,
 )
 from app.services.variables import get_variables, get_variable, validate_variable
-from app.utils import validate_rule_name, validate_variable_name
+from app.utils import (
+    validate_rule_name,
+    validate_variable_name,
+    validate_variable_value as validate_variable_val,
+)
 
 router = APIRouter(prefix="/config", tags=["config"])
 
 
 @router.get("", response_model=ConfigResponse)
-def get_all_config_data() -> ConfigResponse:
+async def get_all_config_data() -> ConfigResponse:
     validation_rules = get_validation_rules()
     variables = get_variables()
-    file = format_drive_file_metadata(get_file_metadata(settings.CONFIG_SPREADSHEET_ID))
+    file = format_drive_file_metadata(
+        get_drive_item_metadata(settings.CONFIG_SPREADSHEET_ID)
+    )
 
     return ConfigResponse(
         validation_rules=validation_rules, variables=variables, file=file
@@ -38,18 +52,20 @@ def get_all_config_data() -> ConfigResponse:
 
 
 @router.post("/refresh", response_model=DetailResponse)
-def refresh_config_cache() -> DetailResponse:
+async def refresh_config_cache() -> DetailResponse:
     update_cache()
     return DetailResponse(detail="Refreshed successfully")
 
 
 @router.get("/file", response_model=DriveFile)
-def get_config_file() -> DriveFile:
-    return format_drive_file_metadata(get_file_metadata(settings.CONFIG_SPREADSHEET_ID))
+async def get_config_file() -> DriveFile:
+    return format_drive_file_metadata(
+        get_drive_item_metadata(settings.CONFIG_SPREADSHEET_ID)
+    )
 
 
 @router.get("/validation_rules", response_model=List[ValidationRule])
-def get_rules() -> List[ValidationRule]:
+async def get_rules() -> List[ValidationRule]:
     return get_validation_rules()
 
 
@@ -63,7 +79,7 @@ def get_rules() -> List[ValidationRule]:
         },
     },
 )
-def get_rule(rule: str) -> ValidationRule:
+async def get_rule(rule: str) -> ValidationRule:
     validate_rule_name(rule)
 
     validation_rule = get_validation_rule(rule)
@@ -105,9 +121,11 @@ def get_rule(rule: str) -> ValidationRule:
         },
     },
 )
-def validate_rule(rule: str, request: ValidationRequest):
+async def validate_rule(
+    rule: str, request: ValidationRequest
+) -> Union[ValidationResult, JSONResponse]:
     validate_rule_name(rule)
-    validate_variable_value(request.value)
+    validate_variable_val(request.value)
 
     validation_rule = get_validation_rule(rule)
     if not validation_rule:
@@ -119,16 +137,16 @@ def validate_rule(rule: str, request: ValidationRequest):
             status_code=400, content={"is_valid": False, "error": error}
         )
 
-    return {"is_valid": True, "error": None}
+    return ValidationResult(is_valid=True, error=None)
 
 
 @router.get(
     "/variables",
     response_model=VariablesResponse,
 )
-def get_all_variables(
+async def get_all_variables(
     type: Optional[VariableType] = Query(None, description="Filter variables by type")
-):
+) -> VariablesResponse:
     variables = get_variables()
     if type:
         variables = [v for v in variables if v.type == type]
@@ -138,7 +156,7 @@ def get_all_variables(
 
 @router.get(
     "/variables/{variable}",
-    response_model=Variable,
+    response_model=Union[PlainVariable, MultichoiceVariable, ConstantVariable],
     responses={
         404: {
             "description": "Variable not found",
@@ -148,7 +166,9 @@ def get_all_variables(
         },
     },
 )
-def get_variable_config(variable: str):
+async def get_variable_config(
+    variable: str,
+) -> Union[PlainVariable, MultichoiceVariable, ConstantVariable]:
     validate_variable_name(variable)
 
     var = get_variable(variable)
@@ -192,9 +212,11 @@ def get_variable_config(variable: str):
         },
     },
 )
-def validate_variable_value(variable: str, request: ValidationRequest):
+async def validate_variable_value(
+    variable: str, request: ValidationRequest
+) -> Union[ValidationResult, JSONResponse]:
     validate_variable_name(variable)
-    validate_variable_value(request.value)
+    validate_variable_val(request.value)
 
     var = get_variable(variable)
     if not var:
@@ -212,4 +234,4 @@ def validate_variable_value(variable: str, request: ValidationRequest):
             status_code=400, content={"is_valid": False, "error": error}
         )
 
-    return {"is_valid": True, "error": None}
+    return ValidationResult(is_valid=True, error=None)

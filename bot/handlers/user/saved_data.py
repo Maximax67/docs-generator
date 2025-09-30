@@ -1,12 +1,12 @@
 from typing import Dict, List, Tuple
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InaccessibleMessage
 from aiogram.fsm.context import FSMContext
 
 from app.enums import VariableType
 from app.models.database import User
 from app.services.config import get_variables_dict
 from app.utils import find_and_update_user
-from bot.keyboards.inline.button import SavedDataCallback
+from bot.keyboards.callback import SavedDataCallback
 from bot.keyboards.inline.saved_variables import saved_variables_keyboard
 from bot.keyboards.inline.view_variable import view_variable_keyboard
 from bot.states.saved_data import SavedDataStates
@@ -19,7 +19,7 @@ async def variables_selector(
     state: FSMContext,
     saved_valid_variables: List[Tuple[str, str]],
     pos: int,
-):
+) -> None:
     if not saved_valid_variables:
         await message.answer("Збережені дані відсутні")
         await state.clear()
@@ -37,7 +37,10 @@ async def variables_selector(
     await state.update_data(last_message_id=answer.message_id)
 
 
-async def saved_data_handler(message: Message, state: FSMContext):
+async def saved_data_handler(message: Message, state: FSMContext) -> None:
+    if message.from_user is None:
+        return
+
     await delete_last_message(message, state)
     await state.clear()
 
@@ -71,7 +74,10 @@ async def saved_data_handler(message: Message, state: FSMContext):
     await variables_selector(message, state, saved_valid_variables, 0)
 
 
-async def delete_all_saved_handler(callback: CallbackQuery, state: FSMContext):
+async def delete_all_saved_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await delete_last_message(callback.message, state)
     await state.clear()
 
@@ -89,14 +95,19 @@ async def delete_all_saved_handler(callback: CallbackQuery, state: FSMContext):
 
 async def view_saved_variable_handler(
     callback: CallbackQuery, callback_data: SavedDataCallback, state: FSMContext
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await delete_last_message(callback.message, state)
     await state.set_state(SavedDataStates.view_variable)
 
     selected_pos = int(callback_data.q)
 
-    saved_valid_variables = await state.get_value("saved_valid_variables")
-    saved_variables = await state.get_value("saved_variables")
+    saved_valid_variables: List[Tuple[str, str]] = await state.get_value(
+        "saved_valid_variables", []
+    )
+    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
 
     name, readable_name = saved_valid_variables[selected_pos]
     variable_value = saved_variables[name]
@@ -111,15 +122,18 @@ async def view_saved_variable_handler(
 
 async def delete_saved_variable_handler(
     callback: CallbackQuery, callback_data: SavedDataCallback, state: FSMContext
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await delete_last_message(callback.message, state)
 
     selected_pos = int(callback_data.q)
 
     saved_valid_variables: List[Tuple[str, str]] = await state.get_value(
-        "saved_valid_variables"
+        "saved_valid_variables", []
     )
-    saved_variables: Dict[str, str] = await state.get_value("saved_variables")
+    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
 
     name, readable_name = saved_valid_variables.pop(selected_pos)
     del saved_variables[name]
@@ -144,12 +158,15 @@ async def delete_saved_variable_handler(
 
 async def go_to_variable_handler(
     callback: CallbackQuery, callback_data: SavedDataCallback, state: FSMContext
-):
+) -> None:
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        raise Exception("Message is inaccessible")
+
     await delete_last_message(callback.message, state)
 
     selected_pos = int(callback_data.q)
     saved_valid_variables: List[Tuple[str, str]] = await state.get_value(
-        "saved_valid_variables"
+        "saved_valid_variables", []
     )
 
     await variables_selector(

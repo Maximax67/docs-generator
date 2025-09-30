@@ -155,7 +155,7 @@ def adjust_entities_and_message_text(
     return prefix + text, new_entities
 
 
-async def notify_message_sent(message: Message, state: FSMContext):
+async def notify_message_sent(message: Message, state: FSMContext) -> None:
     await delete_last_message(message, state)
     answer = await message.answer(
         'Ваше повідомленя надіслано! За потреби надішліть ще одне, або натисність "Закрити".',
@@ -164,7 +164,7 @@ async def notify_message_sent(message: Message, state: FSMContext):
     await state.update_data(last_message_id=answer.message_id)
 
 
-async def send_feedback_handler(message: Message, state: FSMContext):
+async def send_feedback_handler(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
 
@@ -181,7 +181,11 @@ async def send_feedback_handler(message: Message, state: FSMContext):
             user,
         )
 
-        forwarded_message = await message.bot.send_message(
+        bot = message.bot
+        if bot is None:
+            raise Exception("Bot is None")
+
+        forwarded_message = await bot.send_message(
             settings.ADMIN_CHAT_ID,
             info_text,
             message_thread_id=settings.ADMIN_FEEDBACK_THREAD_ID,
@@ -199,7 +203,11 @@ async def send_feedback_handler(message: Message, state: FSMContext):
         f' (<a href="https://t.me/{username}">@{username}</a>)' if username else ""
     )
 
-    info_message = await message.bot.send_message(
+    bot = message.bot
+    if bot is None:
+        raise Exception("Bot is None")
+
+    info_message = await bot.send_message(
         settings.ADMIN_CHAT_ID,
         f"📩 Нове повідомлення від <code>{full_name}</code>{username_label}:",
         message_thread_id=settings.ADMIN_FEEDBACK_THREAD_ID,
@@ -223,7 +231,10 @@ async def send_feedback_handler(message: Message, state: FSMContext):
     await notify_message_sent(message, state)
 
 
-async def user_feedback_reply_handler(message: Message):
+async def user_feedback_reply_handler(message: Message) -> None:
+    if not message.reply_to_message:
+        return
+
     if message.from_user is None:
         await invalid_input_handler(message)
         return
@@ -235,6 +246,10 @@ async def user_feedback_reply_handler(message: Message):
     if not admin_message_id:
         await invalid_input_handler(message)
         return
+
+    bot = message.bot
+    if bot is None:
+        raise Exception("Bot is None")
 
     if message.text:
         user = message.from_user
@@ -249,7 +264,7 @@ async def user_feedback_reply_handler(message: Message):
             settings.ADMIN_CHAT_ID,
             admin_message_id,
             info_text,
-            message.bot,
+            bot,
             entities=entities,
         )
         await store_message_mapping(
@@ -269,7 +284,7 @@ async def user_feedback_reply_handler(message: Message):
         settings.ADMIN_CHAT_ID,
         admin_message_id,
         f"📨 Відповідь від <code>{full_name}</code>{username_label}:",
-        message.bot,
+        bot,
         parse_mode="HTML",
     )
 
@@ -288,7 +303,10 @@ async def user_feedback_reply_handler(message: Message):
     )
 
 
-async def admin_feedback_reply_handler(message: Message):
+async def admin_feedback_reply_handler(message: Message) -> None:
+    if not message.reply_to_message:
+        return
+
     user_id, user_message_id = await get_user_message_id(
         message.reply_to_message.message_id
     )
@@ -296,7 +314,11 @@ async def admin_feedback_reply_handler(message: Message):
     if not user_id or not user_message_id:
         return
 
-    await message.bot.set_message_reaction(
+    bot = message.bot
+    if bot is None:
+        raise Exception("Bot is None")
+
+    await bot.set_message_reaction(
         message.chat.id,
         message.message_id,
         [ReactionTypeEmoji(emoji="❤")],
@@ -309,7 +331,7 @@ async def admin_feedback_reply_handler(message: Message):
             message.entities,
         )
         forwarded_message = await send_message_with_reply(
-            user_id, user_message_id, info_text, message.bot, entities=entities
+            user_id, user_message_id, info_text, bot, entities=entities
         )
         await store_message_mapping(
             user_id,
@@ -319,9 +341,9 @@ async def admin_feedback_reply_handler(message: Message):
         return
 
     info_message = await send_message_with_reply(
-        user_id, user_message_id, "📨 Відповідь адміністраторів:", message.bot
+        user_id, user_message_id, "📨 Відповідь адміністраторів:", bot
     )
-    forwarded_message = await message.bot.copy_message(
+    forwarded_message_to_user = await bot.copy_message(
         user_id,
         message.chat.id,
         message.message_id,
@@ -330,14 +352,14 @@ async def admin_feedback_reply_handler(message: Message):
 
     await store_message_mapping(
         user_id,
-        forwarded_message.message_id,
+        forwarded_message_to_user.message_id,
         message.message_id,
         info_message.message_id,
         False,
     )
 
 
-async def feedback_handler(message: Message, state: FSMContext):
+async def feedback_handler(message: Message, state: FSMContext) -> None:
     await delete_last_message(message, state)
     await state.clear()
     await state.set_state(FeedbackStates.feedback)

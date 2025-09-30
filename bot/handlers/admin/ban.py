@@ -8,20 +8,24 @@ from bot.utils.get_text_after_space import get_text_after_space
 async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
     reply_message = message.reply_to_message
     user: Optional[User] = None
-    user_id = get_text_after_space(message.text)
+    user_id: Optional[int] = None
+    user_id_str: Optional[str] = None
 
-    if user_id:
+    if message.text:
+        user_id_str = get_text_after_space(message.text)
+
+    if user_id_str:
         try:
-            user_id = int(user_id)
+            user_id = int(user_id_str)
         except ValueError:
             await message.reply("Не валідний user id")
-            return
+            return None
     else:
         if not reply_message:
             await message.reply(
                 "Команда /ban має бути реплаєм на повідомлення від юзера, згенерований документ або містити user id"
             )
-            return
+            return None
 
         reply_msg_id = reply_message.message_id
         feedback_msg = await Feedback.find_one(
@@ -38,15 +42,16 @@ async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
                 await message.reply(
                     "Команда /ban має бути реплаєм на повідомлення від юзера, згенерований документ або містити user id"
                 )
-                return
+                return None
 
-            if not result.user:
+            user = result.user
+
+            if not user:
                 await message.reply(
                     "Це анонімно згенерований документ. Забанити користувача не можливо"
                 )
-                return
+                return None
 
-            user: User = result.user
             if user.is_banned == to_ban:
                 return 0
 
@@ -58,7 +63,7 @@ async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
     user = await User.find_one(User.telegram_id == user_id)
     if not user:
         await message.reply("Користувача не знайдено")
-        return
+        return None
 
     if user.is_banned == to_ban:
         return 0
@@ -69,7 +74,7 @@ async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
     return user_id
 
 
-async def ban_handler(message: Message):
+async def ban_handler(message: Message) -> None:
     user_id = await ban_unban_user(message, True)
     if user_id is None:
         return
@@ -81,7 +86,10 @@ async def ban_handler(message: Message):
     admin_message = await message.reply("Користувач заблокований")
 
     try:
-        user_message = await message.bot.send_message(user_id, "🚫 Тебе забанили")
+        bot = message.bot
+        if bot:
+            user_message = await bot.send_message(user_id, "🚫 Тебе забанили")
+
         await Feedback(
             user_id=user_id,
             user_message_id=user_message.message_id,
@@ -91,7 +99,7 @@ async def ban_handler(message: Message):
         pass
 
 
-async def unban_handler(message: Message):
+async def unban_handler(message: Message) -> None:
     user_id = await ban_unban_user(message, False)
     if user_id is None:
         return
@@ -103,7 +111,10 @@ async def unban_handler(message: Message):
     admin_message = await message.reply("Користувач розбанений")
 
     try:
-        user_message = await message.bot.send_message(user_id, "✅ Тебе розбанили")
+        bot = message.bot
+        if bot:
+            user_message = await bot.send_message(user_id, "✅ Тебе розбанили")
+
         await Feedback(
             user_id=user_id,
             user_message_id=user_message.message_id,
@@ -113,8 +124,8 @@ async def unban_handler(message: Message):
         pass
 
 
-async def ban_list_handler(message: Message):
-    users: List[User] = await User.find(User.is_banned == True).to_list()
+async def ban_list_handler(message: Message) -> None:
+    users: List[User] = await User.find(User.is_banned).to_list()
 
     if not users:
         await message.reply("✅ Ніхто не заблокований")

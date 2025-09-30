@@ -36,7 +36,7 @@ from bot.handlers.user.saved_data import (
 )
 from bot.handlers.user.start import start_handler
 from bot.handlers.user.statistics import statistics_handler
-from bot.keyboards.inline.button import (
+from bot.keyboards.callback import (
     GenerationCallback,
     MainCallback,
     SavedDataCallback,

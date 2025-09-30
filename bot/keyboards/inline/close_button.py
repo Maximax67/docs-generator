@@ -1,9 +1,10 @@
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.keyboards.inline.button import MainCallback
+from bot.keyboards.callback import MainCallback
 
 
-def close_btn():
+def close_btn() -> InlineKeyboardMarkup:
     btn = InlineKeyboardBuilder()
     btn.button(
         text="❌ Закрити",

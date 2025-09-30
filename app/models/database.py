@@ -31,20 +31,23 @@ class BaseDocument(Document):
     updated_at: Optional[datetime] = None
 
     @before_event(Insert)
-    def set_created_at(self):
+    def set_created_at(self) -> None:
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
 
     @before_event(Replace, SaveChanges, Update)
-    def update_timestamp(self):
+    def update_timestamp(self) -> None:
         self.updated_at = datetime.now(timezone.utc)
 
     class Settings:
         use_state_management = True
 
 
-class TrustedFolder(BaseDocument):
+class PinnedFolder(BaseDocument):
     folder_id: Annotated[str, Indexed(unique=True)]
+
+    class Settings:
+        name = "pinned_folders"
 
 
 class User(BaseDocument):

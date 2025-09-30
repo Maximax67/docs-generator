@@ -1,9 +1,10 @@
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.keyboards.inline.button import SavedDataCallback, MainCallback
+from bot.keyboards.callback import SavedDataCallback, MainCallback
 
 
-def view_variable_keyboard(position: int):
+def view_variable_keyboard(position: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
     kb.button(

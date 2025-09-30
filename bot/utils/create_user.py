@@ -7,7 +7,7 @@ async def create_user(user: TG_USER) -> User:
     if user.is_bot:
         raise ValueError("Can not create a bot user")
 
-    return await User.find_one(User.telegram_id == user.id).upsert(
+    db_user: User = await User.find_one(User.telegram_id == user.id).upsert(
         {
             "$set": {
                 "first_name": user.first_name,
@@ -22,3 +22,5 @@ async def create_user(user: TG_USER) -> User:
             username=user.username,
         ),
     )
+
+    return db_user

@@ -1,3 +1,6 @@
+CHUNK_DOWNLOAD_THRESHOLD = 10 * 1024 * 1024
+MAX_DOWNLOAD_RETRIES = 1
+
 GOOGLE_AUTH_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 DOC_COMPATIBLE_MIME_TYPES = [

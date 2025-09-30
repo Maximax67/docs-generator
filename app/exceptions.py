@@ -15,7 +15,16 @@ class ValidationErrorsException(Exception):
         super().__init__(errors)
 
 
-async def exception_handler(request: Request, exc: Exception, bot: Bot) -> JSONResponse:
+async def document_validation_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={"detail": {"error_type": exc.__class__.__name__, "error": str(exc)}},
+    )
+
+
+async def exception_handler(request: Request, exc: Exception, bot: Bot) -> Response:
     if str(exc) == "Telegram server says - Bad Request: MESSAGE_ID_INVALID":
         return Response(status_code=200)
 
@@ -49,7 +58,7 @@ async def exception_handler(request: Request, exc: Exception, bot: Bot) -> JSONR
             chat_id=settings.ADMIN_CHAT_ID,
             message_thread_id=settings.ADMIN_ERRORS_THREAD_ID,
             text=(
-                f"🚨 <b>Error Alert</b> 🚨\n\n"
+                "🚨 <b>Error Alert</b> 🚨\n\n"
                 + str(exc)
                 + "\n\n<pre>Short Traceback:\n"
                 + formatted_tb

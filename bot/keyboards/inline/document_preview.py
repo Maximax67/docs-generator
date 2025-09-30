@@ -1,9 +1,10 @@
-from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.keyboards.inline.button import GenerationCallback, MainCallback
+from bot.keyboards.callback import GenerationCallback, MainCallback
 
 
-def document_preview_keyboard(generate_now_available: bool):
+def document_preview_keyboard(generate_now_available: bool) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
     if generate_now_available:

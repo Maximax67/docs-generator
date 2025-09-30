@@ -1,18 +1,20 @@
 from typing import List, Optional
-from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.services.variables import is_variable_value_valid
-from bot.keyboards.inline.button import GenerationCallback, MainCallback
-
-BREAK_COLUMNS_CHAR_LIMIT = 15
+from bot.constants import BUTTON_INPUT_BREAK_COLUMNS_CHAR_LIMIT
+from bot.keyboards.callback import GenerationCallback, MainCallback
 
 
 def multichoice_input(
     choices: List[str], saved_input: Optional[str], is_skippable: bool
-):
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 
-    two_columns = all(len(choice) <= BREAK_COLUMNS_CHAR_LIMIT for choice in choices)
+    two_columns = all(
+        len(choice) <= BUTTON_INPUT_BREAK_COLUMNS_CHAR_LIMIT for choice in choices
+    )
 
     if saved_input and saved_input in choices:
         idx = choices.index(saved_input)

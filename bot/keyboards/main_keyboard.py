@@ -11,5 +11,5 @@ main_keyboard = ReplyKeyboardMarkup(
             KeyboardButton(text="💾 Збережені дані"),
         ],
     ],
-    resize_keyboard=True
+    resize_keyboard=True,
 )

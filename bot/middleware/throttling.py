@@ -1,7 +1,7 @@
 import time
+from typing import Any, Dict
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message
 from aiogram.dispatcher.event.handler import HandlerObject
 
 from bot.keyboards.inline.close_button import close_btn
@@ -15,7 +15,7 @@ class ThrottlingMiddleware(BaseMiddleware):
     request rate, they will receive a message indicating that they are making too many requests.
     """
 
-    def __init__(self, default_rate: int = 0.5) -> None:
+    def __init__(self, default_rate: float = 0.5) -> None:
         """
         Initializes the ThrottlingMiddleware instance.
 
@@ -24,12 +24,12 @@ class ThrottlingMiddleware(BaseMiddleware):
 
         This constructor sets up the initial rate limit and other throttling parameters.
         """
-        self.limiters = {}
+        self.limiters: Dict[Any, Any] = {}
         self.default_rate = default_rate
         self.count_throttled = 1
         self.last_throttled = 0
 
-    async def __call__(self, handler, event: Message, data):
+    async def __call__(self, handler: Any, event: Any, data: Dict[str, Any]) -> Any:
         """
         Processes incoming messages and enforces throttling rules.
 
@@ -54,7 +54,7 @@ class ThrottlingMiddleware(BaseMiddleware):
             user_id = event.callback_query.from_user.id
 
         if real_handler.flags.get("skip_pass") is not None:
-            skip_pass = real_handler.flags.get("skip_pass")
+            skip_pass = real_handler.flags.get("skip_pass", False)
 
         if skip_pass:
             if int(time.time()) - self.last_throttled >= self.default_rate:
@@ -71,7 +71,7 @@ class ThrottlingMiddleware(BaseMiddleware):
                     response = "Забагато запитів від тебе!"
                     try:
                         await event.callback_query.answer(response)
-                    except:
+                    except Exception:
                         await event.bot.send_message(
                             chat_id=user_id, text=response, reply_markup=close_btn()
                         )

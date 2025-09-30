@@ -1,3 +1,4 @@
+from typing import Any, Dict, Union
 from aiogram.types import FSInputFile
 from io import BytesIO
 import os
@@ -23,8 +24,7 @@ from app.services.documents import (
 )
 from app.services.google_drive import (
     download_file,
-    export_file,
-    get_file_metadata,
+    get_drive_item_metadata,
     format_drive_file_metadata,
 )
 from app.exceptions import ValidationErrorsException
@@ -38,7 +38,7 @@ from bot.bot import bot
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-common_responses = {
+common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     404: {
         "description": "Document not found or access denied",
         "content": {
@@ -57,7 +57,7 @@ common_responses = {
     },
 }
 
-common_responses_with_validation = {
+common_responses_with_validation: Dict[Union[int, str], Dict[str, Any]] = {
     **common_responses,
     400: {
         "description": "Validation error",
@@ -81,7 +81,7 @@ common_responses_with_validation = {
 
 
 @router.get("", response_model=DriveFileListResponse)
-def get_documents() -> DriveFileListResponse:
+async def get_documents() -> DriveFileListResponse:
     return DriveFileListResponse(files=get_all_documents())
 
 
@@ -90,9 +90,9 @@ def get_documents() -> DriveFileListResponse:
     response_model=DocumentDetails,
     responses=common_responses,
 )
-def get_document(document_id: str):
+async def get_document(document_id: str) -> DocumentDetails:
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"
@@ -101,9 +101,15 @@ def get_document(document_id: str):
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
-    variables, is_valid = get_validated_document_variables(file)
+    variables, unknown_variables = get_validated_document_variables(file)
+    is_valid = len(unknown_variables) == 0
 
-    return DocumentDetails(file=file, variables=variables, is_valid=is_valid)
+    return DocumentDetails(
+        file=file,
+        variables=variables,
+        unknown_variables=unknown_variables,
+        is_valid=is_valid,
+    )
 
 
 @router.get(
@@ -111,9 +117,9 @@ def get_document(document_id: str):
     response_model=DriveFile,
     responses=common_responses,
 )
-def get_document_file(document_id: str):
+async def get_document_file(document_id: str) -> DriveFile:
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"
@@ -130,9 +136,9 @@ def get_document_file(document_id: str):
     response_model=DocumentVariables,
     responses=common_responses,
 )
-def get_variables_for_document(document_id: str):
+async def get_variables_for_document(document_id: str) -> DocumentVariables:
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"
@@ -141,18 +147,21 @@ def get_variables_for_document(document_id: str):
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
-    variables, is_valid = get_validated_document_variables(file)
+    variables, unknown_variables = get_validated_document_variables(file)
+    is_valid = len(unknown_variables) == 0
 
-    return DocumentVariables(variables=variables, is_valid=is_valid)
+    return DocumentVariables(
+        variables=variables, unknown_variables=unknown_variables, is_valid=is_valid
+    )
 
 
 @router.get(
     "/{document_id}/raw",
     responses=common_responses,
 )
-def get_raw_document(document_id: str):
+async def get_raw_document(document_id: str) -> StreamingResponse:
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"
@@ -161,17 +170,21 @@ def get_raw_document(document_id: str):
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
+    content = BytesIO()
+
     if file.mime_type == "application/vnd.google-apps.document":
         media_type = (
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
-        content = export_file(file.id, media_type)
+        download_file(file.id, content, media_type, file.size)
     else:
         media_type = file.mime_type
-        content = download_file(file.id)
+        download_file(file.id, content, None, file.size)
+
+    content.seek(0)
 
     return StreamingResponse(
-        BytesIO(content),
+        content,
         media_type=media_type,
         headers={"Content-Disposition": f"attachment; filename={file.id}"},
     )
@@ -187,9 +200,11 @@ def get_raw_document(document_id: str):
         },
     },
 )
-def preview_document(document_id: str, background_tasks: BackgroundTasks):
+async def preview_document(
+    document_id: str, background_tasks: BackgroundTasks
+) -> FileResponse:
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"
@@ -226,14 +241,14 @@ def preview_document(document_id: str, background_tasks: BackgroundTasks):
         },
     },
 )
-def validate_provided_variables_for_document(
+async def validate_provided_variables_for_document(
     document_id: str,
     request: GenerateDocumentRequest,
-):
+) -> Union[ValidationErrorsResponse, JSONResponse]:
     validate_document_generation_request(request.variables)
 
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"
@@ -246,14 +261,15 @@ def validate_provided_variables_for_document(
         validate_variables_for_document(file, request.variables)
     except ValidationErrorsException as e:
         return JSONResponse(
-            status_code=400, content={"valid": False, "errors": e.errors}
+            status_code=400, content={"is_valid": False, "errors": e.errors}
         )
 
-    return JSONResponse(status_code=200, content={"valid": True, "errors": []})
+    return ValidationErrorsResponse(is_valid=True, errors={})
 
 
 @router.post(
     "/{document_id}/generate",
+    response_model=None,
     responses={
         **common_responses_with_validation,
         200: {
@@ -266,11 +282,11 @@ async def generate_document_with_variables(
     document_id: str,
     request: GenerateDocumentRequest,
     background_tasks: BackgroundTasks,
-):
+) -> Union[JSONResponse, FileResponse]:
     validate_document_generation_request(request.variables)
 
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"
@@ -314,6 +330,7 @@ async def generate_document_with_variables(
 @router.post(
     "/{document_id}/generate_for_user",
     dependencies=[Depends(verify_token)],
+    response_model=None,
     responses={
         **common_responses_with_validation,
         200: {
@@ -330,11 +347,11 @@ async def generate_document_with_variables_for_user(
     document_id: str,
     request: GenerateDocumentForUserRequest,
     background_tasks: BackgroundTasks,
-):
+) -> Union[JSONResponse, FileResponse]:
     validate_document_generation_request(request.variables)
 
     try:
-        file_metadata = get_file_metadata(document_id)
+        file_metadata = get_drive_item_metadata(document_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Document not found or access denied"

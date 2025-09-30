@@ -1,18 +1,20 @@
-from typing import Tuple
-from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
+from typing import List, Tuple
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from bot.keyboards.inline.button import SavedDataCallback, MainCallback
+from bot.constants import PAGINATION_ITEMS_PER_PAGE
+from bot.keyboards.callback import SavedDataCallback, MainCallback
 
-ITEMS_PER_PAGE = 3
 
-
-def saved_variables_keyboard(variables: Tuple[str, str], pos: int):
+def saved_variables_keyboard(
+    variables: List[Tuple[str, str]], pos: int
+) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     total = len(variables)
 
-    page = pos // ITEMS_PER_PAGE
-    start = page * ITEMS_PER_PAGE
-    end = start + ITEMS_PER_PAGE
+    page = pos // PAGINATION_ITEMS_PER_PAGE
+    start = page * PAGINATION_ITEMS_PER_PAGE
+    end = start + PAGINATION_ITEMS_PER_PAGE
     page_items = variables[start:end]
 
     for i, var in enumerate(page_items, start=start):
@@ -25,7 +27,7 @@ def saved_variables_keyboard(variables: Tuple[str, str], pos: int):
 
     nav_buttons = []
     if start > 0:
-        prev_pos = max(0, start - ITEMS_PER_PAGE)
+        prev_pos = max(0, start - PAGINATION_ITEMS_PER_PAGE)
         nav_buttons.append(
             InlineKeyboardButton(
                 text="⬅️",

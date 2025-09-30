@@ -1,11 +1,17 @@
-from aiogram.types import CallbackQuery
+from typing import Optional
+from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
 
-async def close(call: CallbackQuery, state: FSMContext):
-    last_message_id = await state.get_value("last_message_id")
+async def close(call: CallbackQuery, state: FSMContext) -> None:
+    last_message_id: Optional[int] = await state.get_value("last_message_id")
 
-    if not last_message_id or call.message.message_id >= last_message_id:
+    if (
+        not last_message_id
+        or not call.message
+        or call.message.message_id >= last_message_id
+    ):
         await state.clear()
 
-    await call.message.delete()
+    if call.message and isinstance(call.message, Message):
+        await call.message.delete()

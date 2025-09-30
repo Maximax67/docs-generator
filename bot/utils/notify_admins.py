@@ -4,8 +4,7 @@ from app.settings import settings
 from bot.keyboards.inline.close_button import close_btn
 
 
-async def notify_admins(bot: Bot):
-    return
+async def notify_admins(bot: Bot) -> None:
     await bot.send_message(
         settings.ADMIN_CHAT_ID,
         "Я запустився!",

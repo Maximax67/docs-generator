@@ -6,8 +6,10 @@ from bot.keyboards.main_keyboard import main_keyboard
 from bot.utils.create_user import create_user
 
 
-async def start_handler(message: Message, state: FSMContext):
+async def start_handler(message: Message, state: FSMContext) -> None:
     user = message.from_user
+    if user is None:
+        return
 
     await state.clear()
 

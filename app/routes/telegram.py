@@ -32,7 +32,7 @@ router = APIRouter(prefix="/telegram", tags=["telegram"])
         },
     },
 )
-async def webhook(request: Request):
+async def webhook(request: Request) -> DetailResponse:
     try:
         raw_update = await request.json()
     except ValueError as e:
@@ -78,7 +78,7 @@ async def webhook(request: Request):
         },
     },
 )
-async def set_webhook():
+async def set_webhook() -> DetailResponse:
     await set_telegram_webhook(bot)
 
     return DetailResponse(detail="Webhook set successfully")
@@ -95,7 +95,7 @@ async def set_webhook():
         },
     },
 )
-async def delete_webhook():
+async def delete_webhook() -> DetailResponse:
     await bot.delete_webhook(drop_pending_updates=True)
 
     return DetailResponse(detail="Webhook deleted successfully")
