@@ -125,7 +125,7 @@ async def unban_handler(message: Message) -> None:
 
 
 async def ban_list_handler(message: Message) -> None:
-    users: List[User] = await User.find(User.is_banned).to_list()
+    users: List[User] = await User.find(User.is_banned == True).to_list()
 
     if not users:
         await message.reply("✅ Ніхто не заблокований")

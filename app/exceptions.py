@@ -1,5 +1,5 @@
 import traceback
-from typing import Dict
+from typing import Dict, Optional
 
 from aiogram import Bot
 from aiogram.types import LinkPreviewOptions
@@ -32,19 +32,19 @@ async def exception_handler(request: Request, exc: Exception, bot: Bot) -> Respo
     filtered_lines = [line for line in tb_lines if "app" in line or "bot" in line]
     formatted_tb = "".join(filtered_lines) or tb_lines[-1]
 
-    chat_id = None
+    chat_id_str: Optional[str] = None
 
     try:
         message_info: Dict[str, str] = request.state.message_info
-        chat_id = message_info.get("chat_id")
-        user_id = message_info.get("user_id")
+        chat_id_str = message_info.get("chat_id")
+        user_id_str = message_info.get("user_id")
         full_name = message_info.get("full_name")
         username = message_info.get("username")
-        message_thread_id = message_info.get("message_thread_id")
+        message_thread_id_str = message_info.get("message_thread_id")
 
-        footer = f"<code>{chat_id}</code>"
-        if user_id:
-            footer += f" | <code>{user_id}</code> | "
+        footer = f"<code>{chat_id_str}</code>"
+        if user_id_str:
+            footer += f" | <code>{user_id_str}</code> | "
 
             if username:
                 footer += f"<a href='https://t.me/{username}'>{full_name}</a>"
@@ -69,12 +69,16 @@ async def exception_handler(request: Request, exc: Exception, bot: Bot) -> Respo
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
 
-        if chat_id:
-            await bot.send_message(
-                chat_id=int(chat_id),
-                text="Упс. Сталася помилка 🫠. Модератори отримали сповіщення про неї та постараються виправити баг",
-                message_thread_id=int(message_thread_id) if message_thread_id else None,
-            )
+        if chat_id_str:
+            chat_id = int(chat_id_str)
+            if chat_id != settings.ADMIN_CHAT_ID:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text="Упс. Сталася помилка 🫠. Модератори отримали сповіщення про неї та постараються виправити баг",
+                    message_thread_id=(
+                        int(message_thread_id_str) if message_thread_id_str else None
+                    ),
+                )
     except Exception as bot_error:
         print("Failed to send error message to Telegram:", bot_error)
 
