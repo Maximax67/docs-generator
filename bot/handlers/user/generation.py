@@ -7,7 +7,7 @@ from app.settings import settings
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.enums import VariableType
 from app.models.database import Feedback, Result, PinnedFolder, User
-from app.models.google import DriveFolder
+from app.models.google import DriveFile, DriveFolder
 from app.models.variables import MultichoiceVariable, PlainVariable
 from app.services.documents import (
     generate_document,
@@ -71,6 +71,8 @@ async def initial_generation_handler(
         await message.answer("Шаблони документів не завантажені в систему")
         return
 
+    pinned_folders.sort(key=lambda f: f.name)
+
     await state.set_state(GenerationStates.select_root_folder)
 
     answer = await message.answer(
@@ -111,16 +113,16 @@ async def selection_menu(
     pinned_folder_objs = await PinnedFolder.find_all().to_list()
     pinned_ids = {str(f.folder_id) for f in pinned_folder_objs}
 
-    folders = []
-    documents = []
+    folders: List[DriveFolder] = []
+    documents: List[DriveFile] = []
 
     for item in contents:
         mime_type = item["mimeType"]
 
         if mime_type == "application/vnd.google-apps.folder":
             if item["id"] not in pinned_ids:
-                folder = format_drive_file_metadata(item)
-                folders.append(DriveFolder(**folder.model_dump(), is_pinned=False))
+                folder = format_drive_folder_metadata(item)
+                folders.append(folder)
         elif mime_type in DOC_COMPATIBLE_MIME_TYPES:
             documents.append(format_drive_file_metadata(item))
 
@@ -137,6 +139,8 @@ async def selection_menu(
 
     if len(folders) or len(documents):
         text_to_send = "Категорія: " + " > ".join(names)
+        folders.sort(key=lambda f: f.name)
+        documents.sort(key=lambda f: f.name)
     else:
         text_to_send = "Категорія порожня: " + " > ".join(names)
 
