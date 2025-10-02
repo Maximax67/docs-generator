@@ -1,24 +1,24 @@
 from typing import Any, Dict, Optional, Union
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
+from beanie import PydanticObjectId
 
+from app.enums import UserRole
 from app.models.common_responses import DetailResponse
 from app.models.users import AllUsersResponse, UserDocumentsResponse, UserUpdateRequest
+from app.services.auth import clear_auth_cookies
 from app.settings import settings
-from app.models.database import Result, User
-from app.dependencies import verify_token
+from app.models.database import Result, Session, User
+from app.dependencies import authorize_user_or_admin, require_admin
 from app.utils import (
-    find_and_update_user,
     validate_saved_variables_count,
     validate_variable_name,
     validate_variable_value,
 )
 
 
-router = APIRouter(
-    prefix="/users", tags=["users"], dependencies=[Depends(verify_token)]
-)
+router = APIRouter(prefix="/users", tags=["users"])
 
 common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     404: {
@@ -32,7 +32,12 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
 }
 
 
-@router.get("", response_model=AllUsersResponse, responses={403: common_responses[403]})
+@router.get(
+    "",
+    response_model=AllUsersResponse,
+    responses={403: common_responses[403]},
+    dependencies=[Depends(require_admin)],
+)
 async def get_all_users() -> AllUsersResponse:
     users = await User.find_all().to_list()
 
@@ -45,15 +50,18 @@ async def get_all_users() -> AllUsersResponse:
     response_model=User,
     responses={
         409: {
-            "description": "User with this telegram_id already exists",
+            "description": "User with this id or telegram id already exists",
             "content": {
                 "application/json": {
-                    "example": {"detail": "User with this telegram_id already exists"}
+                    "example": {
+                        "detail": "User with this id or telegram id already exists"
+                    }
                 }
             },
         },
         403: common_responses[403],
     },
+    dependencies=[Depends(require_admin)],
 )
 async def create_user(user: User) -> User:
     validate_saved_variables_count(len(user.saved_variables))
@@ -63,52 +71,91 @@ async def create_user(user: User) -> User:
     except DuplicateKeyError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="User with this telegram_id already exists",
+            detail="User with this id or telegram id already exists",
         )
 
 
-@router.get("/{telegram_id}", response_model=User, responses=common_responses)
-async def get_user(telegram_id: int) -> User:
-    user = await User.find_one(User.telegram_id == telegram_id)
+@router.get(
+    "/{user_id}",
+    response_model=User,
+    responses=common_responses,
+)
+async def get_user(
+    user_id: PydanticObjectId, role: UserRole = Depends(authorize_user_or_admin)
+) -> User:
+    user = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     return user
 
 
-@router.patch("/{telegram_id}", response_model=User, responses=common_responses)
-async def update_user(telegram_id: int, user_update: UserUpdateRequest) -> User:
+@router.patch("/{user_id}", response_model=User, responses=common_responses)
+async def update_user(
+    user_id: PydanticObjectId,
+    user_update: UserUpdateRequest,
+    role: UserRole = Depends(authorize_user_or_admin),
+) -> User:
+    if role == UserRole.USER:
+        if any(
+            field is not None
+            for field in (
+                user_update.email,
+                user_update.is_banned,
+                user_update.telegram_id,
+                user_update.telegram_username,
+            )
+        ):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     if user_update.saved_variables:
         validate_saved_variables_count(len(user_update.saved_variables))
 
-    return await find_and_update_user(
-        telegram_id, {"$set": user_update.model_dump(exclude_unset=True)}
+    updated_user: Optional[
+        User
+    ] = await User.get_pymongo_collection().find_one_and_update(
+        {"_id": user_id},
+        {"$set": user_update.model_dump(exclude_unset=True)},
+        return_document=ReturnDocument.AFTER,
     )
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return updated_user
 
 
 @router.delete(
-    "/{telegram_id}", response_model=DetailResponse, responses=common_responses
+    "/{user_id}",
+    response_model=DetailResponse,
+    responses=common_responses,
 )
-async def delete_user(telegram_id: int) -> DetailResponse:
-    user = await User.find_one(User.telegram_id == telegram_id)
+async def delete_user(
+    user_id: PydanticObjectId,
+    response: Response,
+    role: UserRole = Depends(authorize_user_or_admin),
+) -> DetailResponse:
+    user = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    await Result.get_pymongo_collection().update_many(
-        {"user.$id": user.id}, {"$set": {"user": None}}
-    )
-    await user.delete()
+    await Result.get_pymongo_collection().delete_many({"user.$id": user.id})
+    await Session.get_pymongo_collection().delete_many({"user.$id": user.id})
+    await User.get_pymongo_collection().delete_one({"_id": user.id})
+
+    if role == UserRole.USER:
+        clear_auth_cookies(response)
 
     return DetailResponse(detail="User deleted")
 
 
 @router.get(
-    "/{telegram_id}/documents",
+    "/{user_id}/documents",
     response_model=UserDocumentsResponse,
     responses=common_responses,
+    dependencies=[Depends(authorize_user_or_admin)],
 )
-async def get_user_documents(telegram_id: int) -> UserDocumentsResponse:
-    user = await User.find_one(User.telegram_id == telegram_id)
+async def get_user_documents(user_id: PydanticObjectId) -> UserDocumentsResponse:
+    user = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -118,12 +165,13 @@ async def get_user_documents(telegram_id: int) -> UserDocumentsResponse:
 
 
 @router.get(
-    "/{telegram_id}/saved_variables",
+    "/{user_id}/saved_variables",
     response_model=Dict[str, str],
     responses=common_responses,
+    dependencies=[Depends(authorize_user_or_admin)],
 )
-async def get_saved_variables(telegram_id: int) -> Dict[str, str]:
-    user: Optional[User] = await User.find_one(User.telegram_id == telegram_id)
+async def get_saved_variables(user_id: PydanticObjectId) -> Dict[str, str]:
+    user: Optional[User] = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -131,10 +179,14 @@ async def get_saved_variables(telegram_id: int) -> Dict[str, str]:
 
 
 @router.put(
-    "/{telegram_id}/saved_variables", response_model=User, responses=common_responses
+    "/{user_id}/saved_variables",
+    response_model=User,
+    responses=common_responses,
 )
 async def update_saved_variables(
-    telegram_id: int, saved_variables: Dict[str, str]
+    user_id: PydanticObjectId,
+    saved_variables: Dict[str, str],
+    role: UserRole = Depends(authorize_user_or_admin),
 ) -> User:
     validate_saved_variables_count(len(saved_variables))
 
@@ -142,36 +194,71 @@ async def update_saved_variables(
         validate_variable_name(key)
         validate_variable_value(value)
 
-    return await find_and_update_user(
-        telegram_id, {"$set": {"saved_variables": saved_variables}}
+    updated_user: Optional[
+        User
+    ] = await User.get_pymongo_collection().find_one_and_update(
+        {"_id": user_id},
+        {"$set": {"saved_variables": saved_variables}},
+        return_document=ReturnDocument.AFTER,
     )
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return updated_user
 
 
 @router.delete(
-    "/{telegram_id}/saved_variables", response_model=User, responses=common_responses
-)
-async def delete_saved_variables(telegram_id: int) -> User:
-    return await find_and_update_user(telegram_id, {"$set": {"saved_variables": {}}})
-
-
-@router.delete(
-    "/{telegram_id}/saved_variables/{variable}",
+    "/{user_id}/saved_variables",
     response_model=User,
     responses=common_responses,
+    dependencies=[Depends(authorize_user_or_admin)],
 )
-async def delete_saved_variable(telegram_id: int, variable: str) -> User:
-    validate_variable_name(variable)
-    return await find_and_update_user(
-        telegram_id, {"$unset": {f"saved_variables.{variable}": ""}}
+async def delete_saved_variables(user_id: PydanticObjectId) -> User:
+    updated_user: Optional[
+        User
+    ] = await User.get_pymongo_collection().find_one_and_update(
+        {"_id": user_id},
+        {"$set": {"saved_variables": {}}},
+        return_document=ReturnDocument.AFTER,
     )
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return updated_user
+
+
+@router.delete(
+    "/{user_id}/saved_variables/{variable}",
+    response_model=User,
+    responses=common_responses,
+    dependencies=[Depends(authorize_user_or_admin)],
+)
+async def delete_saved_variable(user_id: PydanticObjectId, variable: str) -> User:
+    validate_variable_name(variable)
+    updated_user: Optional[
+        User
+    ] = await User.get_pymongo_collection().find_one_and_update(
+        {"_id": user_id},
+        {"$unset": {f"saved_variables.{variable}": ""}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return updated_user
 
 
 @router.patch(
-    "/{telegram_id}/saved_variables/{variable}",
+    "/{user_id}/saved_variables/{variable}",
     response_model=User,
     responses=common_responses,
 )
-async def update_saved_variable(telegram_id: int, variable: str, value: str) -> User:
+async def update_saved_variable(
+    user_id: PydanticObjectId,
+    variable: str,
+    value: str,
+    role: UserRole = Depends(authorize_user_or_admin),
+) -> User:
     validate_variable_name(variable)
     validate_variable_value(value)
 
@@ -179,7 +266,7 @@ async def update_saved_variable(telegram_id: int, variable: str, value: str) -> 
         User
     ] = await User.get_pymongo_collection().find_one_and_update(
         {
-            "telegram_id": telegram_id,
+            "_id": user_id,
             "$expr": {
                 "$or": [
                     {
@@ -213,7 +300,7 @@ async def update_saved_variable(telegram_id: int, variable: str, value: str) -> 
     # Distinguish failure cause
 
     existing_user: Optional[User] = await User.get_pymongo_collection().find_one(
-        {"telegram_id": telegram_id},
+        {"_id": user_id},
         {"_id": 1},
     )
     if not existing_user:
@@ -226,7 +313,7 @@ async def update_saved_variable(telegram_id: int, variable: str, value: str) -> 
 
 
 @router.post(
-    "/{telegram_id}/ban",
+    "/{user_id}/ban",
     response_model=User,
     responses={
         **common_responses,
@@ -237,12 +324,13 @@ async def update_saved_variable(telegram_id: int, variable: str, value: str) -> 
             },
         },
     },
+    dependencies=[Depends(require_admin)],
 )
-async def ban_user(telegram_id: int) -> User:
+async def ban_user(user_id: PydanticObjectId) -> User:
     updated_user: Optional[
         User
     ] = await User.get_pymongo_collection().find_one_and_update(
-        {"telegram_id": telegram_id, "is_banned": False},
+        {"_id": user_id, "is_banned": False},
         {"$set": {"is_banned": True}},
         return_document=ReturnDocument.AFTER,
     )
@@ -251,7 +339,7 @@ async def ban_user(telegram_id: int) -> User:
         return updated_user
 
     # Either user not found or already banned
-    user_exists = await User.find_one(User.telegram_id == telegram_id)
+    user_exists = await User.find_one(User.id == user_id)
 
     if not user_exists:
         raise HTTPException(status_code=404, detail="User not found")
@@ -260,7 +348,7 @@ async def ban_user(telegram_id: int) -> User:
 
 
 @router.post(
-    "/{telegram_id}/unban",
+    "/{user_id}/unban",
     response_model=User,
     responses={
         **common_responses,
@@ -271,12 +359,13 @@ async def ban_user(telegram_id: int) -> User:
             },
         },
     },
+    dependencies=[Depends(require_admin)],
 )
-async def unban_user(telegram_id: int) -> User:
+async def unban_user(user_id: PydanticObjectId) -> User:
     updated_user: Optional[
         User
     ] = await User.get_pymongo_collection().find_one_and_update(
-        {"telegram_id": telegram_id, "is_banned": True},
+        {"_id": user_id, "is_banned": True},
         {"$set": {"is_banned": False}},
         return_document=ReturnDocument.AFTER,
     )
@@ -285,7 +374,7 @@ async def unban_user(telegram_id: int) -> User:
         return updated_user
 
     # Either user not found or already unbanned
-    user_exists = await User.find_one(User.telegram_id == telegram_id)
+    user_exists = await User.find_one(User.id == user_id)
 
     if not user_exists:
         raise HTTPException(status_code=404, detail="User not found")

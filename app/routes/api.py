@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from app.settings import settings
 from app.models.common_responses import DetailResponse
-from app.routes import config, documents, folders, telegram, users
+from app.routes import auth, config, documents, folders, telegram, users
 
 
 router = APIRouter(prefix="/api")
@@ -25,6 +25,7 @@ def health_check() -> DetailResponse:
 
 
 router.include_router(telegram.router)
+router.include_router(auth.router)
 router.include_router(users.router)
 router.include_router(folders.router)
 router.include_router(documents.router)

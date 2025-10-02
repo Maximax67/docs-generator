@@ -1,11 +1,11 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from aiogram.types import Message, CallbackQuery, InaccessibleMessage
 from aiogram.fsm.context import FSMContext
+from pymongo import ReturnDocument
 
 from app.enums import VariableType
 from app.models.database import User
 from app.services.config import get_variables_dict
-from app.utils import find_and_update_user
 from bot.keyboards.callback import SavedDataCallback
 from bot.keyboards.inline.saved_variables import saved_variables_keyboard
 from bot.keyboards.inline.view_variable import view_variable_keyboard
@@ -82,7 +82,16 @@ async def delete_all_saved_handler(callback: CallbackQuery, state: FSMContext) -
     await state.clear()
 
     user_id = callback.from_user.id
-    await find_and_update_user(user_id, {"$set": {"saved_variables": {}}})
+    updated_user: Optional[
+        User
+    ] = await User.get_pymongo_collection().find_one_and_update(
+        {"telegram_id": user_id},
+        {"$set": {"saved_variables": {}}},
+        return_document=ReturnDocument.AFTER,
+    )
+
+    if not updated_user:
+        raise Exception("User not found")
 
     answer = await callback.message.answer("Усі дані успішно видалено")
 
@@ -138,9 +147,15 @@ async def delete_saved_variable_handler(
     name, readable_name = saved_valid_variables.pop(selected_pos)
     del saved_variables[name]
 
-    await find_and_update_user(
-        callback.from_user.id, {"$unset": {f"saved_variables.{name}": ""}}
+    updated_user: Optional[
+        User
+    ] = await User.get_pymongo_collection().find_one_and_update(
+        {"telegram_id": callback.from_user.id},
+        {"$unset": {f"saved_variables.{name}": ""}},
+        return_document=ReturnDocument.AFTER,
     )
+    if not updated_user:
+        raise Exception("User not found")
 
     await state.update_data(
         saved_variables=saved_variables, saved_valid_variables=saved_valid_variables

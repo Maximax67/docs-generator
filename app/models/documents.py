@@ -18,10 +18,6 @@ class GenerateDocumentRequest(BaseModel):
     variables: Dict[str, str]
 
 
-class GenerateDocumentForUserRequest(GenerateDocumentRequest):
-    user_id: int
-
-
 class ValidationErrors(BaseModel):
     errors: Dict[str, str]
 

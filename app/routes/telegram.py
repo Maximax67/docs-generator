@@ -2,7 +2,7 @@ from typing import Dict
 from aiogram.types import Update
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import verify_telegram_token, verify_token
+from app.dependencies import require_admin, verify_telegram_token
 from app.exceptions import exception_handler
 from app.models.common_responses import DetailResponse
 
@@ -70,7 +70,7 @@ async def webhook(request: Request) -> DetailResponse:
 @router.post(
     "/set_webhook",
     response_model=DetailResponse,
-    dependencies=[Depends(verify_token)],
+    dependencies=[Depends(require_admin)],
     responses={
         403: {
             "description": "Invalid token",
@@ -87,7 +87,7 @@ async def set_webhook() -> DetailResponse:
 @router.post(
     "/delete_webhook",
     response_model=DetailResponse,
-    dependencies=[Depends(verify_token)],
+    dependencies=[Depends(require_admin)],
     responses={
         403: {
             "description": "Invalid token",

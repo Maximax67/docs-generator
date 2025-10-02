@@ -8,7 +8,7 @@ from pymongo import AsyncMongoClient
 from app.exceptions import document_validation_exception_handler, exception_handler
 from app.routes import api
 from app.settings import settings
-from app.models.database import Feedback, PinnedFolder, User, Result
+from app.models.database import Feedback, PinnedFolder, User, Result, Session
 
 from bot.bot import bot
 from bot.utils.notify_admins import notify_admins
@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     await init_beanie(
         database=client["docs_generator"],
-        document_models=[PinnedFolder, Feedback, User, Result],
+        document_models=[PinnedFolder, Feedback, User, Result, Session],
     )
     await set_telegram_webhook(bot)
     await set_bot_commands(bot)

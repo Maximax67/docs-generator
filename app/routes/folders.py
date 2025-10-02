@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
-from app.dependencies import verify_token
+from app.dependencies import require_admin
 from app.models.common_responses import DetailResponse
 from app.services.google_drive import (
     format_drive_file_metadata,
@@ -57,7 +57,7 @@ async def list_folders(pinned: Optional[bool] = Query(None)) -> FolderListRespon
 @router.post(
     "/refresh_pinned",
     response_model=DetailResponse,
-    dependencies=[Depends(verify_token)],
+    dependencies=[Depends(require_admin)],
 )
 async def refresh_pinned_folders() -> DetailResponse:
     folders = get_accessible_folders()
@@ -117,7 +117,7 @@ async def get_folder(folder_id: str) -> FolderContents:
     "/{folder_id}/pin",
     response_model=DetailResponse,
     responses=common_responses,
-    dependencies=[Depends(verify_token)],
+    dependencies=[Depends(require_admin)],
 )
 async def pin_folder(folder_id: str) -> DetailResponse:
     try:
@@ -150,7 +150,7 @@ async def pin_folder(folder_id: str) -> DetailResponse:
             },
         },
     },
-    dependencies=[Depends(verify_token)],
+    dependencies=[Depends(require_admin)],
 )
 async def unpin_folder(folder_id: str) -> DetailResponse:
     to_unpin = await PinnedFolder.find_one(PinnedFolder.folder_id == folder_id)

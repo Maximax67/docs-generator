@@ -12,14 +12,14 @@ async def create_user(user: TG_USER) -> User:
             "$set": {
                 "first_name": user.first_name,
                 "last_name": user.last_name,
-                "username": user.username,
+                "telegram_username": user.username,
             }
         },
         on_insert=User(
             telegram_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
-            username=user.username,
+            telegram_username=user.username,
         ),
     )
 

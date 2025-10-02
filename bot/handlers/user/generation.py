@@ -259,7 +259,10 @@ async def show_selected_document(
 
         if not required_variables_names:
             user_mention = format_document_user_mention(
-                user.telegram_id, user.first_name, user.last_name, user.username
+                user.telegram_id,
+                user.first_name,
+                user.last_name,
+                user.telegram_username,
             )
 
             message = callback.message
@@ -572,7 +575,10 @@ async def generate_document_result(
 
         try:
             user_mention = format_document_user_mention(
-                user.telegram_id, user.first_name, user.last_name, user.username
+                user.telegram_id,
+                user.first_name,
+                user.last_name,
+                user.telegram_username,
             )
 
             bot = message.bot

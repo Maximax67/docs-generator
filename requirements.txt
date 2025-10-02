@@ -9,3 +9,7 @@ pydantic
 pydantic_settings
 pymongo
 uvicorn
+PyJWT
+pybars3
+passlib
+bcrypt<4

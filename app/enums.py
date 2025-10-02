@@ -12,3 +12,15 @@ class ConfigSheetName(str, Enum):
     VARIABLES = "Variables"
     MULTICHOICE_VARIABLES = "Multichoice_Variables"
     CONSTANTS = "Constants"
+
+
+class TokenType(str, Enum):
+    ACCESS = "access"
+    REFRESH = "refresh"
+    VERIFY_EMAIL = "verify_email"
+    PASSWORD_RESET = "password_reset"
+
+
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    USER = "user"

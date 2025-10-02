@@ -1,17 +1,14 @@
 from typing import Any, Dict, Union
-from aiogram.types import FSInputFile
 from io import BytesIO
 import os
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from app.settings import settings
-from app.dependencies import verify_token
+from app.dependencies import authorize_user_or_admin
 from app.models.google import DriveFile, DriveFileListResponse
 from app.models.documents import (
     DocumentDetails,
     DocumentVariables,
-    GenerateDocumentForUserRequest,
     GenerateDocumentRequest,
     ValidationErrorsResponse,
 )
@@ -28,13 +25,11 @@ from app.services.google_drive import (
     format_drive_file_metadata,
 )
 from app.exceptions import ValidationErrorsException
-from app.models.database import Feedback, Result, User
+from beanie import PydanticObjectId
 from app.utils import (
-    format_document_user_mention,
     validate_document_generation_request,
     validate_document_mime_type,
 )
-from bot.bot import bot
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -296,29 +291,11 @@ async def generate_document_with_variables(
     validate_document_mime_type(file.mime_type)
 
     try:
-        pdf_file_path, context = generate_document(file, request.variables)
+        pdf_file_path, _ = generate_document(file, request.variables)
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
     background_tasks.add_task(os.remove, pdf_file_path)
-
-    if file.mime_type == "application/vnd.google-apps.document":
-        filename = file.name
-    else:
-        filename, _ = os.path.splitext(file.name)
-
-    admin_message = await bot.send_document(
-        settings.ADMIN_CHAT_ID,
-        FSInputFile(pdf_file_path, filename=f"{filename}.pdf"),
-        message_thread_id=settings.ADMIN_DOCUMENTS_THREAD_ID,
-        caption="Згенеровано через API",
-    )
-
-    await Result(
-        template_id=document_id,
-        variables=context,
-        telegram_message_id=admin_message.message_id,
-    ).insert()
 
     return FileResponse(
         path=pdf_file_path,
@@ -328,8 +305,8 @@ async def generate_document_with_variables(
 
 
 @router.post(
-    "/{document_id}/generate_for_user",
-    dependencies=[Depends(verify_token)],
+    "/{document_id}/generate/{user_id}",
+    dependencies=[Depends(authorize_user_or_admin)],
     response_model=None,
     responses={
         **common_responses_with_validation,
@@ -345,7 +322,8 @@ async def generate_document_with_variables(
 )
 async def generate_document_with_variables_for_user(
     document_id: str,
-    request: GenerateDocumentForUserRequest,
+    user_id: PydanticObjectId,
+    request: GenerateDocumentRequest,
     background_tasks: BackgroundTasks,
 ) -> Union[JSONResponse, FileResponse]:
     validate_document_generation_request(request.variables)
@@ -361,64 +339,11 @@ async def generate_document_with_variables_for_user(
     validate_document_mime_type(file.mime_type)
 
     try:
-        pdf_file_path, context = generate_document(file, request.variables)
+        pdf_file_path, _ = generate_document(file, request.variables)
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
     background_tasks.add_task(os.remove, pdf_file_path)
-
-    user = await User.find_one(User.telegram_id == request.user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    if file.mime_type == "application/vnd.google-apps.document":
-        filename = file.name
-    else:
-        filename, _ = os.path.splitext(file.name)
-
-    error = None
-    try:
-        message = await bot.send_document(
-            user.telegram_id,
-            FSInputFile(pdf_file_path, filename=f"{filename}.pdf"),
-            caption="Згенеровано для тебе",
-        )
-    except Exception as e:
-        error = str(e)
-
-    user_mention = format_document_user_mention(
-        user.telegram_id, user.first_name, user.last_name, user.username
-    )
-
-    base_caption = f"Згенеровано через API для {user_mention}"
-    caption = (
-        f"{base_caption}, однак не вдалось надіслати юзеру: {error}"
-        if error
-        else base_caption
-    )
-
-    admin_message = await bot.send_document(
-        settings.ADMIN_CHAT_ID,
-        FSInputFile(pdf_file_path, filename=f"{filename}.pdf"),
-        message_thread_id=settings.ADMIN_DOCUMENTS_THREAD_ID,
-        caption=caption,
-    )
-
-    admin_message_id = admin_message.message_id
-
-    await Result(
-        user=user,
-        template_id=document_id,
-        variables=context,
-        telegram_message_id=admin_message_id,
-    ).insert()
-
-    if error is None:
-        await Feedback(
-            user_id=user.telegram_id,
-            user_message_id=message.message_id,
-            admin_message_id=admin_message_id,
-        ).insert()
 
     return FileResponse(
         path=pdf_file_path,

@@ -137,7 +137,7 @@ async def ban_list_handler(message: Message) -> None:
         if u.last_name:
             full_name += f" {u.last_name}"
 
-        username_label = f"\n🔗 @{u.username}" if u.username else ""
+        username_label = f"\n🔗 @{u.telegram_username}" if u.telegram_username else ""
         lines.append(f"👤 {full_name}{username_label}\n🆔 {u.telegram_id}")
 
     text = "🚫 Заблоковані користувачі\n\n" + "\n\n".join(lines)

@@ -35,6 +35,33 @@ class Settings(BaseSettings):
     MAX_DOCUMENT_VARIABLES: int = 1000
     MAX_SAVED_VARIABLES: int = 100
 
+    # JWT settings
+    JWT_SECRET: SecretStr
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRES_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRES_DAYS: int = 30
+    JWT_ISSUER: Optional[str] = None
+    JWT_AUDIENCE: Optional[str] = None
+
+    # Cookie settings for auth
+    ACCESS_COOKIE_NAME: str = "access_token"
+    REFRESH_COOKIE_NAME: str = "refresh_token"
+    COOKIE_DOMAIN: Optional[str] = None
+    COOKIE_SECURE: bool = True
+    COOKIE_SAMESITE: str = "lax"  # 'lax' | 'strict' | 'none'
+    COOKIE_PATH: str = "/"
+
+    # SMTP settings
+    SMTP_HOST: str
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str
+    SMTP_PASSWORD: SecretStr
+    SMTP_USE_TLS: bool = True
+    SMTP_FROM_EMAIL: str
+
+    EMAIL_VERIFICATION_TEMPLATE: str = "./app/mail/confirm.handlebars"
+    PASSWORD_RESET_TEMPLATE: str = "./app/mail/reset-password.handlebars"
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

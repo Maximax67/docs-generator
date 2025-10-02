@@ -11,6 +11,7 @@ from beanie import (
     before_event,
 )
 from pydantic import Field
+from app.enums import UserRole
 
 
 class Feedback(Document):
@@ -51,12 +52,19 @@ class PinnedFolder(BaseDocument):
 
 
 class User(BaseDocument):
-    telegram_id: Annotated[int, Indexed(unique=True)]
+    telegram_id: Annotated[Optional[int], Indexed(unique=True, sparse=True)] = None
+    email: Annotated[Optional[str], Indexed(unique=True, sparse=True)] = None
+
     first_name: str
     last_name: Optional[str] = None
-    username: Optional[str] = None
+
+    telegram_username: Optional[str] = None
     saved_variables: Dict[str, str] = {}
     is_banned: bool = False
+
+    password_hash: Optional[str] = Field(default=None, exclude=True)
+    email_verified: bool = False
+    role: UserRole = UserRole.USER
 
     class Settings:
         name = "users"
@@ -70,3 +78,15 @@ class Result(BaseDocument):
 
     class Settings:
         name = "results"
+
+
+class Session(BaseDocument):
+    user: Link[User]
+    refresh_jti: Annotated[str, Indexed(unique=True)]
+    session_name: Optional[str] = None
+
+    class Settings:
+        name = "sessions"
+        indexes = [
+            [("user", 1)],
+        ]
