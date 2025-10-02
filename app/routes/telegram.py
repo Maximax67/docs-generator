@@ -1,6 +1,6 @@
 from typing import Dict
 from aiogram.types import Update
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.dependencies import require_admin, verify_telegram_token
 from app.exceptions import exception_handler
@@ -8,6 +8,7 @@ from app.models.common_responses import DetailResponse
 
 from bot.bot import bot, dp
 from bot.utils.set_webhook import set_telegram_webhook
+from app.limiter import limiter
 
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
@@ -32,7 +33,8 @@ router = APIRouter(prefix="/telegram", tags=["telegram"])
         },
     },
 )
-async def webhook(request: Request) -> DetailResponse:
+@limiter.limit("30/minute")
+async def webhook(request: Request, response: Response) -> DetailResponse:
     try:
         raw_update = await request.json()
     except ValueError as e:
@@ -78,7 +80,8 @@ async def webhook(request: Request) -> DetailResponse:
         },
     },
 )
-async def set_webhook() -> DetailResponse:
+@limiter.limit("5/minute")
+async def set_webhook(request: Request, response: Response) -> DetailResponse:
     await set_telegram_webhook(bot)
 
     return DetailResponse(detail="Webhook set successfully")
@@ -95,7 +98,8 @@ async def set_webhook() -> DetailResponse:
         },
     },
 )
-async def delete_webhook() -> DetailResponse:
+@limiter.limit("5/minute")
+async def delete_webhook(request: Request, response: Response) -> DetailResponse:
     await bot.delete_webhook(drop_pending_updates=True)
 
     return DetailResponse(detail="Webhook deleted successfully")

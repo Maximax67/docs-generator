@@ -28,7 +28,7 @@ class Feedback(Document):
 
 
 class BaseDocument(Document):
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime
     updated_at: Optional[datetime] = None
 
     @before_event(Insert)
@@ -74,7 +74,6 @@ class Result(BaseDocument):
     user: Optional[Link[User]] = None
     template_id: str
     variables: Dict[str, str] = {}
-    telegram_message_id: int
 
     class Settings:
         name = "results"

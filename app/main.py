@@ -4,8 +4,11 @@ from beanie import init_beanie
 from fastapi import FastAPI, Request, Response
 from jinja2 import TemplateError
 from pymongo import AsyncMongoClient
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.exceptions import document_validation_exception_handler, exception_handler
+from app.limiter import limiter
 from app.routes import api
 from app.settings import settings
 from app.models.database import Feedback, PinnedFolder, User, Result, Session
@@ -44,6 +47,9 @@ app = FastAPI(
     version=settings.APP_TITLE,
 )
 
+app.state.limiter = limiter
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(TemplateError, document_validation_exception_handler)
 app.add_exception_handler(Exception, async_exception_handler)
 

@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional, Union
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.dependencies import require_admin
 from app.models.common_responses import DetailResponse
@@ -13,6 +13,7 @@ from app.services.google_drive import (
 from app.models.google import FolderContents, FolderListResponse
 from app.models.database import PinnedFolder
 from app.utils import ensure_folder
+from app.limiter import limiter
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
@@ -38,7 +39,10 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
 
 
 @router.get("", response_model=FolderListResponse)
-async def list_folders(pinned: Optional[bool] = Query(None)) -> FolderListResponse:
+@limiter.limit("5/minute")
+async def list_folders(
+    request: Request, response: Response, pinned: Optional[bool] = Query(None)
+) -> FolderListResponse:
     folders = get_accessible_folders()
     pinned_folder_objs = await PinnedFolder.find_all().to_list()
     pinned_ids = {f.folder_id for f in pinned_folder_objs}
@@ -59,7 +63,10 @@ async def list_folders(pinned: Optional[bool] = Query(None)) -> FolderListRespon
     response_model=DetailResponse,
     dependencies=[Depends(require_admin)],
 )
-async def refresh_pinned_folders() -> DetailResponse:
+@limiter.limit("5/minute")
+async def refresh_pinned_folders(
+    request: Request, response: Response
+) -> DetailResponse:
     folders = get_accessible_folders()
     folder_ids = {f["id"] for f in folders}
     pinned_folder_objs = await PinnedFolder.find_all().to_list()
@@ -74,7 +81,10 @@ async def refresh_pinned_folders() -> DetailResponse:
 
 
 @router.get("/{folder_id}", responses=common_responses)
-async def get_folder(folder_id: str) -> FolderContents:
+@limiter.limit("5/minute")
+async def get_folder(
+    folder_id: str, request: Request, response: Response
+) -> FolderContents:
     try:
         current_folder_metadata = get_drive_item_metadata(folder_id)
     except Exception:
@@ -119,7 +129,10 @@ async def get_folder(folder_id: str) -> FolderContents:
     responses=common_responses,
     dependencies=[Depends(require_admin)],
 )
-async def pin_folder(folder_id: str) -> DetailResponse:
+@limiter.limit("5/minute")
+async def pin_folder(
+    folder_id: str, request: Request, response: Response
+) -> DetailResponse:
     try:
         metadata = get_drive_item_metadata(folder_id)
     except Exception:
@@ -152,7 +165,10 @@ async def pin_folder(folder_id: str) -> DetailResponse:
     },
     dependencies=[Depends(require_admin)],
 )
-async def unpin_folder(folder_id: str) -> DetailResponse:
+@limiter.limit("5/minute")
+async def unpin_folder(
+    folder_id: str, request: Request, response: Response
+) -> DetailResponse:
     to_unpin = await PinnedFolder.find_one(PinnedFolder.folder_id == folder_id)
     if not to_unpin:
         raise HTTPException(status_code=404, detail="Folder not found in pinned list")

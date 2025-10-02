@@ -1,7 +1,7 @@
 from typing import List, Optional
 from aiogram.types import Message
 
-from app.models.database import Feedback, Result, User
+from app.models.database import Feedback, User
 from bot.utils.get_text_after_space import get_text_after_space
 
 
@@ -23,7 +23,7 @@ async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
     else:
         if not reply_message:
             await message.reply(
-                "Команда /ban має бути реплаєм на повідомлення від юзера, згенерований документ або містити user id"
+                "Команда має бути реплаєм на повідомлення від юзера або містити user id"
             )
             return None
 
@@ -32,33 +32,13 @@ async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
             Feedback.admin_message_id == reply_msg_id
         )
 
-        if feedback_msg:
-            user_id = feedback_msg.user_id
-        else:
-            result = await Result.find_one(
-                Result.telegram_message_id == reply_msg_id, fetch_links=True
+        if not feedback_msg:
+            await message.reply(
+                "Команда має бути реплаєм на повідомлення від юзера або містити user id"
             )
-            if not result:
-                await message.reply(
-                    "Команда /ban має бути реплаєм на повідомлення від юзера, згенерований документ або містити user id"
-                )
-                return None
+            return None
 
-            user = result.user
-
-            if not user:
-                await message.reply(
-                    "Це анонімно згенерований документ. Забанити користувача не можливо"
-                )
-                return None
-
-            if user.is_banned == to_ban:
-                return 0
-
-            user.is_banned = to_ban
-            await user.save()
-
-            return user_id
+        user_id = feedback_msg.user_id
 
     user = await User.find_one(User.telegram_id == user_id)
     if not user:

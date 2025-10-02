@@ -1,10 +1,18 @@
 from typing import Any, Dict, Union
 from io import BytesIO
 import os
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+)
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app.dependencies import authorize_user_or_admin
+from app.models.database import Result, User
 from app.models.google import DriveFile, DriveFileListResponse
 from app.models.documents import (
     DocumentDetails,
@@ -25,6 +33,7 @@ from app.services.google_drive import (
     format_drive_file_metadata,
 )
 from app.exceptions import ValidationErrorsException
+from app.limiter import limiter
 from beanie import PydanticObjectId
 from app.utils import (
     validate_document_generation_request,
@@ -76,7 +85,8 @@ common_responses_with_validation: Dict[Union[int, str], Dict[str, Any]] = {
 
 
 @router.get("", response_model=DriveFileListResponse)
-async def get_documents() -> DriveFileListResponse:
+@limiter.limit("5/minute")
+async def get_documents(request: Request, response: Response) -> DriveFileListResponse:
     return DriveFileListResponse(files=get_all_documents())
 
 
@@ -85,7 +95,10 @@ async def get_documents() -> DriveFileListResponse:
     response_model=DocumentDetails,
     responses=common_responses,
 )
-async def get_document(document_id: str) -> DocumentDetails:
+@limiter.limit("5/minute")
+async def get_document(
+    document_id: str, request: Request, response: Response
+) -> DocumentDetails:
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -112,7 +125,10 @@ async def get_document(document_id: str) -> DocumentDetails:
     response_model=DriveFile,
     responses=common_responses,
 )
-async def get_document_file(document_id: str) -> DriveFile:
+@limiter.limit("5/minute")
+async def get_document_file(
+    document_id: str, request: Request, response: Response
+) -> DriveFile:
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -131,7 +147,10 @@ async def get_document_file(document_id: str) -> DriveFile:
     response_model=DocumentVariables,
     responses=common_responses,
 )
-async def get_variables_for_document(document_id: str) -> DocumentVariables:
+@limiter.limit("5/minute")
+async def get_variables_for_document(
+    document_id: str, request: Request, response: Response
+) -> DocumentVariables:
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -154,7 +173,10 @@ async def get_variables_for_document(document_id: str) -> DocumentVariables:
     "/{document_id}/raw",
     responses=common_responses,
 )
-async def get_raw_document(document_id: str) -> StreamingResponse:
+@limiter.limit("5/minute")
+async def get_raw_document(
+    document_id: str, request: Request, response: Response
+) -> StreamingResponse:
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -195,8 +217,12 @@ async def get_raw_document(document_id: str) -> StreamingResponse:
         },
     },
 )
+@limiter.limit("5/minute")
 async def preview_document(
-    document_id: str, background_tasks: BackgroundTasks
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    response: Response,
 ) -> FileResponse:
     try:
         file_metadata = get_drive_item_metadata(document_id)
@@ -236,11 +262,14 @@ async def preview_document(
         },
     },
 )
+@limiter.limit("5/minute")
 async def validate_provided_variables_for_document(
     document_id: str,
-    request: GenerateDocumentRequest,
+    body: GenerateDocumentRequest,
+    request: Request,
+    response: Response,
 ) -> Union[ValidationErrorsResponse, JSONResponse]:
-    validate_document_generation_request(request.variables)
+    validate_document_generation_request(body.variables)
 
     try:
         file_metadata = get_drive_item_metadata(document_id)
@@ -253,7 +282,7 @@ async def validate_provided_variables_for_document(
     validate_document_mime_type(file.mime_type)
 
     try:
-        validate_variables_for_document(file, request.variables)
+        validate_variables_for_document(file, body.variables)
     except ValidationErrorsException as e:
         return JSONResponse(
             status_code=400, content={"is_valid": False, "errors": e.errors}
@@ -273,12 +302,15 @@ async def validate_provided_variables_for_document(
         },
     },
 )
+@limiter.limit("5/minute")
 async def generate_document_with_variables(
     document_id: str,
-    request: GenerateDocumentRequest,
+    body: GenerateDocumentRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
+    response: Response,
 ) -> Union[JSONResponse, FileResponse]:
-    validate_document_generation_request(request.variables)
+    validate_document_generation_request(body.variables)
 
     try:
         file_metadata = get_drive_item_metadata(document_id)
@@ -291,11 +323,13 @@ async def generate_document_with_variables(
     validate_document_mime_type(file.mime_type)
 
     try:
-        pdf_file_path, _ = generate_document(file, request.variables)
+        pdf_file_path, context = generate_document(file, body.variables)
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
     background_tasks.add_task(os.remove, pdf_file_path)
+
+    await Result(template_id=document_id, variables=context).insert()
 
     return FileResponse(
         path=pdf_file_path,
@@ -320,13 +354,16 @@ async def generate_document_with_variables(
         },
     },
 )
+@limiter.limit("5/minute")
 async def generate_document_with_variables_for_user(
     document_id: str,
     user_id: PydanticObjectId,
-    request: GenerateDocumentRequest,
+    body: GenerateDocumentRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
+    response: Response,
 ) -> Union[JSONResponse, FileResponse]:
-    validate_document_generation_request(request.variables)
+    validate_document_generation_request(body.variables)
 
     try:
         file_metadata = get_drive_item_metadata(document_id)
@@ -339,11 +376,17 @@ async def generate_document_with_variables_for_user(
     validate_document_mime_type(file.mime_type)
 
     try:
-        pdf_file_path, _ = generate_document(file, request.variables)
+        pdf_file_path, context = generate_document(file, body.variables)
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
     background_tasks.add_task(os.remove, pdf_file_path)
+
+    user_exists = await User.find_one(User.id == user_id)
+    if not user_exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await Result(user=user_id, template_id=document_id, variables=context).insert()
 
     return FileResponse(
         path=pdf_file_path,

@@ -34,6 +34,7 @@ from app.services.email import (
 )
 from app.settings import settings
 from app.dependencies import get_current_user
+from app.limiter import limiter
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -52,21 +53,22 @@ router = APIRouter(prefix="/auth", tags=["auth"])
             "content": {
                 "application/json": {"example": {"detail": "Email already registered"}}
             },
-        }
+        },
     },
 )
+@limiter.limit("5/minute")
 async def register(
-    request: RegisterRequest, response: Response, http_request: Request
+    request: Request, response: Response, body: RegisterRequest
 ) -> DetailResponse:
-    existing = await User.find_one(User.email == request.email)
+    existing = await User.find_one(User.email == body.email)
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
     user = User(
-        email=request.email,
-        first_name=request.first_name,
-        last_name=request.last_name,
-        password_hash=hash_password(request.password),
+        email=body.email,
+        first_name=body.first_name,
+        last_name=body.last_name,
+        password_hash=hash_password(body.password),
         email_verified=False,
     )
     user = await user.create()
@@ -74,11 +76,11 @@ async def register(
     await send_verification_email(user)
 
     try:
-        await logout_current_session(http_request, response)
+        await logout_current_session(request, response)
     except Exception:
         pass
 
-    access, refresh, expires_in = await issue_token_pair(user, request.session_name)
+    access, refresh, expires_in = await issue_token_pair(user, body.session_name)
     set_auth_cookies(response, access, refresh, expires_in)
 
     return DetailResponse(detail="Registered and logged in")
@@ -100,14 +102,15 @@ async def register(
         },
     },
 )
+@limiter.limit("5/minute")
 async def login(
-    request: LoginRequest, response: Response, http_request: Request
+    request: Request, response: Response, body: LoginRequest
 ) -> DetailResponse:
-    user = await User.find_one(User.email == request.email)
+    user = await User.find_one(User.email == body.email)
     if (
         not user
         or not user.password_hash
-        or not verify_password(request.password, user.password_hash)
+        or not verify_password(body.password, user.password_hash)
     ):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.is_banned:
@@ -115,11 +118,11 @@ async def login(
 
     # Invalidate any current session and clear cookies (best-effort)
     try:
-        await logout_current_session(http_request, response)
+        await logout_current_session(request, response)
     except Exception:
         pass
 
-    access, refresh, expires_in = await issue_token_pair(user, request.session_name)
+    access, refresh, expires_in = await issue_token_pair(user, body.session_name)
     set_auth_cookies(response, access, refresh, expires_in)
 
     return DetailResponse(detail="Logged in")
@@ -137,6 +140,7 @@ async def login(
         }
     },
 )
+@limiter.limit("5/minute")
 async def logout(request: Request, response: Response) -> DetailResponse:
     await logout_current_session(request, response)
     clear_auth_cookies(response)
@@ -156,8 +160,9 @@ async def logout(request: Request, response: Response) -> DetailResponse:
         },
     },
 )
+@limiter.limit("2/minute")
 async def logout_all(
-    response: Response, current_user: User = Depends(get_current_user)
+    request: Request, response: Response, current_user: User = Depends(get_current_user)
 ) -> DetailResponse:
     await revoke_all_sessions(current_user.id)  # type: ignore[arg-type]
     clear_auth_cookies(response)
@@ -177,6 +182,7 @@ async def logout_all(
         },
     },
 )
+@limiter.limit("5/minute")
 async def refresh(request: Request, response: Response) -> DetailResponse:
     # Read refresh token only from cookies
     raw_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
@@ -217,7 +223,10 @@ async def refresh(request: Request, response: Response) -> DetailResponse:
         },
     },
 )
-async def me(current_user: User = Depends(get_current_user)) -> User:
+@limiter.limit("5/minute")
+async def me(
+    request: Request, response: Response, current_user: User = Depends(get_current_user)
+) -> User:
     return current_user
 
 
@@ -227,19 +236,28 @@ async def me(current_user: User = Depends(get_current_user)) -> User:
     responses={
         400: {
             "description": "No email on account",
-            "content": {"application/json": {"example": {"detail": "No email on account"}}},
+            "content": {
+                "application/json": {"example": {"detail": "No email on account"}}
+            },
         },
         401: {
             "description": "Not authenticated",
-            "content": {"application/json": {"example": {"detail": "Not authenticated"}}},
+            "content": {
+                "application/json": {"example": {"detail": "Not authenticated"}}
+            },
         },
         409: {
             "description": "Email already verified",
-            "content": {"application/json": {"example": {"detail": "Email already verified"}}},
+            "content": {
+                "application/json": {"example": {"detail": "Email already verified"}}
+            },
         },
     },
 )
+@limiter.limit("1/minute")
 async def email_send_confirmation(
+    request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
 ) -> DetailResponse:
     if not current_user.email:
@@ -266,7 +284,10 @@ async def email_send_confirmation(
         },
     },
 )
+@limiter.limit("5/minute")
 async def verify_email(
+    request: Request,
+    response: Response,
     token: Optional[str] = None,
 ) -> DetailResponse:
     if not token:
@@ -301,23 +322,34 @@ async def verify_email(
             "content": {
                 "application/json": {
                     "examples": {
-                        "required": {"summary": "Missing email", "value": {"detail": "New email is required"}},
-                        "no_change": {"summary": "Same email", "value": {"detail": "New email must differ from current"}},
+                        "required": {
+                            "summary": "Missing email",
+                            "value": {"detail": "New email is required"},
+                        },
+                        "no_change": {
+                            "summary": "Same email",
+                            "value": {"detail": "New email must differ from current"},
+                        },
                     }
                 }
             },
         },
         401: {
             "description": "Not authenticated",
-            "content": {"application/json": {"example": {"detail": "Not authenticated"}}},
+            "content": {
+                "application/json": {"example": {"detail": "Not authenticated"}}
+            },
         },
     },
 )
+@limiter.limit("5/minute")
 async def email_change(
-    request: EmailChangeRequest,
+    request: Request,
+    response: Response,
+    body: EmailChangeRequest,
     current_user: User = Depends(get_current_user),
 ) -> DetailResponse:
-    new_email = request.new_email
+    new_email = body.new_email
     if not new_email:
         raise HTTPException(status_code=400, detail="New email is required")
 
@@ -339,8 +371,11 @@ async def email_change(
     "/password/forgot",
     response_model=DetailResponse,
 )
-async def password_forgot(request: PasswordForgotRequest) -> DetailResponse:
-    user = await User.find_one(User.email == request.email)
+@limiter.limit("1/minute")
+async def password_forgot(
+    request: Request, response: Response, body: PasswordForgotRequest
+) -> DetailResponse:
+    user = await User.find_one(User.email == body.email)
     if not user:
         # Do not reveal whether the email exists
         return DetailResponse(detail="If the email exists, a reset link has been sent")
@@ -367,9 +402,18 @@ async def password_forgot(request: PasswordForgotRequest) -> DetailResponse:
             "content": {
                 "application/json": {
                     "examples": {
-                        "missing": {"summary": "Missing token", "value": {"detail": "Missing token"}},
-                        "invalid_type": {"summary": "Invalid token type", "value": {"detail": "Invalid token type"}},
-                        "invalid_subject": {"summary": "Invalid subject in token", "value": {"detail": "Invalid subject in token"}},
+                        "missing": {
+                            "summary": "Missing token",
+                            "value": {"detail": "Missing token"},
+                        },
+                        "invalid_type": {
+                            "summary": "Invalid token type",
+                            "value": {"detail": "Invalid token type"},
+                        },
+                        "invalid_subject": {
+                            "summary": "Invalid subject in token",
+                            "value": {"detail": "Invalid subject in token"},
+                        },
                     }
                 }
             },
@@ -380,8 +424,9 @@ async def password_forgot(request: PasswordForgotRequest) -> DetailResponse:
         },
     },
 )
+@limiter.limit("5/minute")
 async def password_reset(
-    token: str, request: PasswordResetRequest, response: Response
+    request: Request, response: Response, token: str, body: PasswordResetRequest
 ) -> DetailResponse:
     if not token:
         raise HTTPException(status_code=400, detail="Missing token")
@@ -400,7 +445,7 @@ async def password_reset(
     if user.email_verified:
         return DetailResponse(detail="Email already verified")
 
-    user.password_hash = hash_password(request.new_password)
+    user.password_hash = hash_password(body.new_password)
     await user.save()
 
     await revoke_all_sessions(user.id)  # type: ignore[arg-type]
@@ -423,20 +468,21 @@ async def password_reset(
         },
     },
 )
+@limiter.limit("5/minute")
 async def password_change(
-    request: PasswordChangeRequest, response: Response
+    request: Request, response: Response, body: PasswordChangeRequest
 ) -> DetailResponse:
-    user = await User.find_one(User.email == request.email)
+    user = await User.find_one(User.email == body.email)
     if (
         not user
         or not user.password_hash
-        or not verify_password(request.old_password, user.password_hash)
+        or not verify_password(body.old_password, user.password_hash)
     ):
         raise HTTPException(
             status_code=401, detail="Invalid old password or user not found"
         )
 
-    user.password_hash = hash_password(request.new_password)
+    user.password_hash = hash_password(body.new_password)
     await user.save()
 
     await revoke_all_sessions(user.id)  # type: ignore[arg-type]

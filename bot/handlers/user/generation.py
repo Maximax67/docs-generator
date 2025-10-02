@@ -256,29 +256,6 @@ async def show_selected_document(
         await callback.message.answer_document(
             FSInputFile(pdf_file_path, filename=f"{user_filename}.pdf")
         )
-
-        if not required_variables_names:
-            user_mention = format_document_user_mention(
-                user.telegram_id,
-                user.first_name,
-                user.last_name,
-                user.telegram_username,
-            )
-
-            message = callback.message
-            if message is None:
-                raise Exception("Message is None")
-
-            bot = message.bot
-            if bot is None:
-                raise Exception("Bot is None")
-
-            admin_message = await bot.send_document(
-                settings.ADMIN_CHAT_ID,
-                FSInputFile(pdf_file_path, filename=f"{filename}.pdf"),
-                message_thread_id=settings.ADMIN_DOCUMENTS_THREAD_ID,
-                caption=f"Згенерував {user_mention}",
-            )
     finally:
         os.remove(pdf_file_path)
 
@@ -298,7 +275,6 @@ async def show_selected_document(
             selected_document=document_id,
             context=context,
             user_id=user_id,
-            admin_message_id=admin_message.message_id,
         )
         await generate_document_result(callback.message, state, True)
         return
@@ -525,7 +501,6 @@ async def generate_document_result(
         raise ValueError("User not found")
 
     if already_generated:
-        admin_message_id = await state.get_value("admin_message_id")
         context = await state.get_value("context")
     else:
         await delete_last_message(message, state)
@@ -574,42 +549,25 @@ async def generate_document_result(
         await delete_last_message(message, state)
 
         try:
-            user_mention = format_document_user_mention(
-                user.telegram_id,
-                user.first_name,
-                user.last_name,
-                user.telegram_username,
-            )
-
             bot = message.bot
             if bot is None:
                 raise Exception("Bot is None")
 
-            admin_message = await bot.send_document(
-                settings.ADMIN_CHAT_ID,
-                FSInputFile(pdf_file_path, filename=f"{filename}.pdf"),
-                message_thread_id=settings.ADMIN_DOCUMENTS_THREAD_ID,
-                caption=f"Згенерував {user_mention}",
-            )
             await message.answer_document(
                 FSInputFile(pdf_file_path, filename=f"{filename}.pdf")
             )
         finally:
             os.remove(pdf_file_path)
 
-        admin_message_id = admin_message.message_id
-
     await Result(
         user=user,
         template_id=document_id,
         variables=context,
-        telegram_message_id=admin_message_id,
     ).insert()
 
-    success_message = await message.answer(
+    await message.answer(
         "Документ успішно згенеровано. "
-        "Якщо сподобався бот, або маєш ідеї для покращення, надішли їх реплаєм на це повідомлення! "
-        "Адміністратори його отримають",
+        "Якщо сподобався бот, або маєш ідеї для покращення, скористайся функцією зворотнього зв'язку!",
     )
 
     if save_data_option == 0:
@@ -626,12 +584,6 @@ async def generate_document_result(
         )
 
         await state.update_data(last_message_id=answer.message_id)
-
-    await Feedback(
-        user_id=user_id,
-        user_message_id=success_message.message_id,
-        admin_message_id=admin_message_id,
-    ).insert()
 
 
 async def save_variables_handler(callback: CallbackQuery, state: FSMContext) -> None:

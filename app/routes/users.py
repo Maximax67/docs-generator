@@ -1,10 +1,11 @@
 from typing import Any, Dict, Optional, Union
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from beanie import PydanticObjectId
 
 from app.enums import UserRole
+from app.limiter import limiter
 from app.models.common_responses import DetailResponse
 from app.models.users import AllUsersResponse, UserDocumentsResponse, UserUpdateRequest
 from app.services.auth import clear_auth_cookies
@@ -38,7 +39,8 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     responses={403: common_responses[403]},
     dependencies=[Depends(require_admin)],
 )
-async def get_all_users() -> AllUsersResponse:
+@limiter.limit("5/minute")
+async def get_all_users(request: Request, response: Response) -> AllUsersResponse:
     users = await User.find_all().to_list()
 
     return AllUsersResponse(users=users)
@@ -63,7 +65,8 @@ async def get_all_users() -> AllUsersResponse:
     },
     dependencies=[Depends(require_admin)],
 )
-async def create_user(user: User) -> User:
+@limiter.limit("5/minute")
+async def create_user(request: Request, response: Response, user: User) -> User:
     validate_saved_variables_count(len(user.saved_variables))
 
     try:
@@ -80,8 +83,12 @@ async def create_user(user: User) -> User:
     response_model=User,
     responses=common_responses,
 )
+@limiter.limit("5/minute")
 async def get_user(
-    user_id: PydanticObjectId, role: UserRole = Depends(authorize_user_or_admin)
+    user_id: PydanticObjectId,
+    request: Request,
+    response: Response,
+    role: UserRole = Depends(authorize_user_or_admin),
 ) -> User:
     user = await User.find_one(User.id == user_id)
     if not user:
@@ -91,9 +98,12 @@ async def get_user(
 
 
 @router.patch("/{user_id}", response_model=User, responses=common_responses)
+@limiter.limit("5/minute")
 async def update_user(
     user_id: PydanticObjectId,
     user_update: UserUpdateRequest,
+    request: Request,
+    response: Response,
     role: UserRole = Depends(authorize_user_or_admin),
 ) -> User:
     if role == UserRole.USER:
@@ -129,8 +139,10 @@ async def update_user(
     response_model=DetailResponse,
     responses=common_responses,
 )
+@limiter.limit("5/minute")
 async def delete_user(
     user_id: PydanticObjectId,
+    request: Request,
     response: Response,
     role: UserRole = Depends(authorize_user_or_admin),
 ) -> DetailResponse:
@@ -154,7 +166,10 @@ async def delete_user(
     responses=common_responses,
     dependencies=[Depends(authorize_user_or_admin)],
 )
-async def get_user_documents(user_id: PydanticObjectId) -> UserDocumentsResponse:
+@limiter.limit("5/minute")
+async def get_user_documents(
+    user_id: PydanticObjectId, request: Request, response: Response
+) -> UserDocumentsResponse:
     user = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -170,7 +185,10 @@ async def get_user_documents(user_id: PydanticObjectId) -> UserDocumentsResponse
     responses=common_responses,
     dependencies=[Depends(authorize_user_or_admin)],
 )
-async def get_saved_variables(user_id: PydanticObjectId) -> Dict[str, str]:
+@limiter.limit("5/minute")
+async def get_saved_variables(
+    user_id: PydanticObjectId, request: Request, response: Response
+) -> Dict[str, str]:
     user: Optional[User] = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -183,9 +201,12 @@ async def get_saved_variables(user_id: PydanticObjectId) -> Dict[str, str]:
     response_model=User,
     responses=common_responses,
 )
+@limiter.limit("5/minute")
 async def update_saved_variables(
     user_id: PydanticObjectId,
     saved_variables: Dict[str, str],
+    request: Request,
+    response: Response,
     role: UserRole = Depends(authorize_user_or_admin),
 ) -> User:
     validate_saved_variables_count(len(saved_variables))
@@ -213,7 +234,10 @@ async def update_saved_variables(
     responses=common_responses,
     dependencies=[Depends(authorize_user_or_admin)],
 )
-async def delete_saved_variables(user_id: PydanticObjectId) -> User:
+@limiter.limit("5/minute")
+async def delete_saved_variables(
+    user_id: PydanticObjectId, request: Request, response: Response
+) -> User:
     updated_user: Optional[
         User
     ] = await User.get_pymongo_collection().find_one_and_update(
@@ -233,7 +257,10 @@ async def delete_saved_variables(user_id: PydanticObjectId) -> User:
     responses=common_responses,
     dependencies=[Depends(authorize_user_or_admin)],
 )
-async def delete_saved_variable(user_id: PydanticObjectId, variable: str) -> User:
+@limiter.limit("5/minute")
+async def delete_saved_variable(
+    user_id: PydanticObjectId, variable: str, request: Request, response: Response
+) -> User:
     validate_variable_name(variable)
     updated_user: Optional[
         User
@@ -253,10 +280,13 @@ async def delete_saved_variable(user_id: PydanticObjectId, variable: str) -> Use
     response_model=User,
     responses=common_responses,
 )
+@limiter.limit("5/minute")
 async def update_saved_variable(
     user_id: PydanticObjectId,
     variable: str,
     value: str,
+    request: Request,
+    response: Response,
     role: UserRole = Depends(authorize_user_or_admin),
 ) -> User:
     validate_variable_name(variable)
@@ -326,7 +356,10 @@ async def update_saved_variable(
     },
     dependencies=[Depends(require_admin)],
 )
-async def ban_user(user_id: PydanticObjectId) -> User:
+@limiter.limit("5/minute")
+async def ban_user(
+    user_id: PydanticObjectId, request: Request, response: Response
+) -> User:
     updated_user: Optional[
         User
     ] = await User.get_pymongo_collection().find_one_and_update(
@@ -361,7 +394,10 @@ async def ban_user(user_id: PydanticObjectId) -> User:
     },
     dependencies=[Depends(require_admin)],
 )
-async def unban_user(user_id: PydanticObjectId) -> User:
+@limiter.limit("5/minute")
+async def unban_user(
+    user_id: PydanticObjectId, request: Request, response: Response
+) -> User:
     updated_user: Optional[
         User
     ] = await User.get_pymongo_collection().find_one_and_update(

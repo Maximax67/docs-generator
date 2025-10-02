@@ -1,5 +1,5 @@
 from typing import List, Optional, Union
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.enums import VariableType
@@ -29,6 +29,7 @@ from app.services.rules import (
     validate_value,
 )
 from app.services.variables import get_variables, get_variable, validate_variable
+from app.limiter import limiter
 from app.utils import (
     validate_rule_name,
     validate_variable_name,
@@ -39,7 +40,8 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 
 @router.get("", response_model=ConfigResponse)
-async def get_all_config_data() -> ConfigResponse:
+@limiter.limit("5/minute")
+async def get_all_config_data(request: Request, response: Response) -> ConfigResponse:
     validation_rules = get_validation_rules()
     variables = get_variables()
     file = format_drive_file_metadata(
@@ -52,20 +54,23 @@ async def get_all_config_data() -> ConfigResponse:
 
 
 @router.post("/refresh", response_model=DetailResponse)
-async def refresh_config_cache() -> DetailResponse:
+@limiter.limit("5/minute")
+async def refresh_config_cache(request: Request, response: Response) -> DetailResponse:
     update_cache()
     return DetailResponse(detail="Refreshed successfully")
 
 
 @router.get("/file", response_model=DriveFile)
-async def get_config_file() -> DriveFile:
+@limiter.limit("5/minute")
+async def get_config_file(request: Request, response: Response) -> DriveFile:
     return format_drive_file_metadata(
         get_drive_item_metadata(settings.CONFIG_SPREADSHEET_ID)
     )
 
 
 @router.get("/validation_rules", response_model=List[ValidationRule])
-async def get_rules() -> List[ValidationRule]:
+@limiter.limit("5/minute")
+async def get_rules(request: Request, response: Response) -> List[ValidationRule]:
     return get_validation_rules()
 
 
@@ -79,7 +84,8 @@ async def get_rules() -> List[ValidationRule]:
         },
     },
 )
-async def get_rule(rule: str) -> ValidationRule:
+@limiter.limit("5/minute")
+async def get_rule(rule: str, request: Request, response: Response) -> ValidationRule:
     validate_rule_name(rule)
 
     validation_rule = get_validation_rule(rule)
@@ -121,17 +127,18 @@ async def get_rule(rule: str) -> ValidationRule:
         },
     },
 )
+@limiter.limit("5/minute")
 async def validate_rule(
-    rule: str, request: ValidationRequest
+    rule: str, body: ValidationRequest, request: Request, response: Response
 ) -> Union[ValidationResult, JSONResponse]:
     validate_rule_name(rule)
-    validate_variable_val(request.value)
+    validate_variable_val(body.value)
 
     validation_rule = get_validation_rule(rule)
     if not validation_rule:
         raise HTTPException(status_code=404, detail="Rule not found")
 
-    error = validate_value(validation_rule, request.value)
+    error = validate_value(validation_rule, body.value)
     if error:
         return JSONResponse(
             status_code=400, content={"is_valid": False, "error": error}
@@ -144,8 +151,11 @@ async def validate_rule(
     "/variables",
     response_model=VariablesResponse,
 )
+@limiter.limit("5/minute")
 async def get_all_variables(
-    type: Optional[VariableType] = Query(None, description="Filter variables by type")
+    request: Request,
+    response: Response,
+    type: Optional[VariableType] = Query(None, description="Filter variables by type"),
 ) -> VariablesResponse:
     variables = get_variables()
     if type:
@@ -166,8 +176,9 @@ async def get_all_variables(
         },
     },
 )
+@limiter.limit("5/minute")
 async def get_variable_config(
-    variable: str,
+    variable: str, request: Request, response: Response
 ) -> Union[PlainVariable, MultichoiceVariable, ConstantVariable]:
     validate_variable_name(variable)
 
@@ -212,11 +223,12 @@ async def get_variable_config(
         },
     },
 )
+@limiter.limit("5/minute")
 async def validate_variable_value(
-    variable: str, request: ValidationRequest
+    variable: str, body: ValidationRequest, request: Request, response: Response
 ) -> Union[ValidationResult, JSONResponse]:
     validate_variable_name(variable)
-    validate_variable_val(request.value)
+    validate_variable_val(body.value)
 
     var = get_variable(variable)
     if not var:
@@ -228,7 +240,7 @@ async def validate_variable_value(
             content={"error": "Cannot validate constant variable", "is_valid": False},
         )
 
-    error = validate_variable(var, request.value)
+    error = validate_variable(var, body.value)
     if error:
         return JSONResponse(
             status_code=400, content={"is_valid": False, "error": error}
