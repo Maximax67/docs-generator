@@ -26,6 +26,19 @@ class FolderContents(BaseModel):
     current_folder: DriveFolder
 
 
+class FolderTree(BaseModel):
+    folders: List["FolderTree"]
+    documents: List[DriveFile]
+    current_folder: DriveFolder
+
+
+FolderTree.model_rebuild()
+
+
+class FolderTreeResponse(BaseModel):
+    tree: List[FolderTree]
+
+
 class DriveFileListResponse(BaseModel):
     files: List[DriveFile]
 

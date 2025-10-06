@@ -22,5 +22,6 @@ class TokenType(str, Enum):
 
 
 class UserRole(str, Enum):
+    GOD = "god"
     ADMIN = "admin"
     USER = "user"

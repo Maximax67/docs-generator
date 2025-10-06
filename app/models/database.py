@@ -28,8 +28,8 @@ class Feedback(Document):
 
 
 class BaseDocument(Document):
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @before_event(Insert)
     def set_created_at(self) -> None:
@@ -49,6 +49,7 @@ class PinnedFolder(BaseDocument):
 
     class Settings:
         name = "pinned_folders"
+        use_state_management = True
 
 
 class User(BaseDocument):
@@ -68,6 +69,8 @@ class User(BaseDocument):
 
     class Settings:
         name = "users"
+        use_state_management = True
+        keep_nulls = False
 
 
 class Result(BaseDocument):
@@ -77,15 +80,20 @@ class Result(BaseDocument):
 
     class Settings:
         name = "results"
+        use_state_management = True
+        keep_nulls = False
 
 
 class Session(BaseDocument):
     user: Link[User]
     refresh_jti: Annotated[str, Indexed(unique=True)]
-    session_name: Optional[str] = None
+    access_jti: str
+    name: Optional[str] = None
 
     class Settings:
         name = "sessions"
+        use_state_management = True
+        keep_nulls = False
         indexes = [
             [("user", 1)],
         ]

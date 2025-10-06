@@ -1,10 +1,17 @@
+import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
+from beanie import PydanticObjectId
 from fastapi import HTTPException
+from pymongo import ReturnDocument
 
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.services.rules import is_rule_name_valid
 from app.settings import settings
 from app.services.variables import is_variable_name_valid, is_variable_value_valid
+from app.models.auth import AuthorizedUser
+from app.models.database import Session, User
+from app.enums import UserRole
 
 
 def validate_variable_name(variable: str) -> None:
@@ -60,11 +67,49 @@ def ensure_folder(mime_type: str) -> None:
         )
 
 
-def format_document_user_mention(
-    telegram_id: int, first_name: str, last_name: Optional[str], username: Optional[str]
-) -> str:
-    full_name = f"{first_name} {last_name}" if last_name else first_name
-    if username:
-        return f"{telegram_id} ({full_name}, @{username})"
+async def cleanup_old_sessions() -> None:
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRES_DAYS
+    )
+    await Session.find(Session.updated_at < seven_days_ago).delete()
 
-    return f"{telegram_id} ({full_name})"
+
+async def periodic_cleanup(interval_seconds: int = 3600) -> None:
+    while True:
+        await cleanup_old_sessions()
+        await asyncio.sleep(interval_seconds)
+
+
+async def update_user_bool_field(
+    user_id: PydanticObjectId,
+    authorized_user: AuthorizedUser,
+    field: str,
+    value: bool,
+    conflict_detail: str,
+) -> User:
+    collection = User.get_pymongo_collection()
+
+    query = {"_id": user_id, field: not value}
+    if authorized_user.role != UserRole.GOD:
+        # Non-GOD admins can only modify regular users
+        query["role"] = UserRole.USER.value
+
+    updated_user: Optional[User] = await collection.find_one_and_update(
+        query,
+        {"$set": {field: value}},
+        return_document=ReturnDocument.AFTER,
+    )
+
+    if updated_user:
+        return updated_user
+
+    user_exists = await User.find_one(User.id == user_id)
+
+    if not user_exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Prevent unauthorized changes to higher-privileged accounts
+    if user_exists.role != UserRole.USER and authorized_user.role != UserRole.GOD:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    raise HTTPException(status_code=409, detail=conflict_detail)

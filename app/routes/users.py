@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from beanie import PydanticObjectId
@@ -9,10 +10,19 @@ from app.limiter import limiter
 from app.models.common_responses import DetailResponse
 from app.models.users import AllUsersResponse, UserDocumentsResponse, UserUpdateRequest
 from app.services.auth import clear_auth_cookies
+from app.services.bloom_filter import bloom_filter
+from app.services.variables import validate_user_variable, validate_user_variables
 from app.settings import settings
+from app.models.auth import AuthorizedUser
 from app.models.database import Result, Session, User
-from app.dependencies import authorize_user_or_admin, require_admin
+from app.dependencies import (
+    authorize_user_or_admin,
+    authorize_user_or_god,
+    require_admin,
+    require_god,
+)
 from app.utils import (
+    update_user_bool_field,
     validate_saved_variables_count,
     validate_variable_name,
     validate_variable_value,
@@ -28,6 +38,10 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     },
     403: {
         "description": "Forbidden",
+        "content": {"application/json": {"example": {"detail": "Forbidden"}}},
+    },
+    401: {
+        "description": "Unauthorized",
         "content": {"application/json": {"example": {"detail": "Invalid token"}}},
     },
 }
@@ -39,7 +53,7 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     responses={403: common_responses[403]},
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_all_users(request: Request, response: Response) -> AllUsersResponse:
     users = await User.find_all().to_list()
 
@@ -61,9 +75,10 @@ async def get_all_users(request: Request, response: Response) -> AllUsersRespons
                 }
             },
         },
+        401: common_responses[401],
         403: common_responses[403],
     },
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_god)],
 )
 @limiter.limit("5/minute")
 async def create_user(request: Request, response: Response, user: User) -> User:
@@ -82,13 +97,13 @@ async def create_user(request: Request, response: Response, user: User) -> User:
     "/{user_id}",
     response_model=User,
     responses=common_responses,
+    dependencies=[Depends(authorize_user_or_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_user(
     user_id: PydanticObjectId,
     request: Request,
     response: Response,
-    role: UserRole = Depends(authorize_user_or_admin),
 ) -> User:
     user = await User.find_one(User.id == user_id)
     if not user:
@@ -104,9 +119,16 @@ async def update_user(
     user_update: UserUpdateRequest,
     request: Request,
     response: Response,
-    role: UserRole = Depends(authorize_user_or_admin),
+    authorized_user: AuthorizedUser = Depends(authorize_user_or_admin),
 ) -> User:
-    if role == UserRole.USER:
+    if (
+        not authorized_user.is_email_verified
+        and not authorized_user.role == UserRole.ADMIN
+        and not authorized_user.role == UserRole.GOD
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    if authorized_user.role == UserRole.USER:
         if any(
             field is not None
             for field in (
@@ -117,6 +139,9 @@ async def update_user(
             )
         ):
             raise HTTPException(status_code=403, detail="Forbidden")
+
+    if authorized_user.role != UserRole.GOD and authorized_user.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     if user_update.saved_variables:
         validate_saved_variables_count(len(user_update.saved_variables))
@@ -144,17 +169,23 @@ async def delete_user(
     user_id: PydanticObjectId,
     request: Request,
     response: Response,
-    role: UserRole = Depends(authorize_user_or_admin),
+    authorized_user: AuthorizedUser = Depends(authorize_user_or_admin),
 ) -> DetailResponse:
     user = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    await Result.get_pymongo_collection().delete_many({"user.$id": user.id})
-    await Session.get_pymongo_collection().delete_many({"user.$id": user.id})
-    await User.get_pymongo_collection().delete_one({"_id": user.id})
+    if authorized_user.user_id != user_id and authorized_user.role != UserRole.GOD:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
-    if role == UserRole.USER:
+    async for session in Session.find(Session.user.id == user_id):
+        bloom_filter.add(session.access_jti)
+
+    await Session.find(Session.user.id == user_id).delete()
+    await Result.find(Result.user.id == user_id).delete()
+    await user.delete()
+
+    if authorized_user.user_id == user_id:
         clear_auth_cookies(response)
 
     return DetailResponse(detail="User deleted")
@@ -207,13 +238,26 @@ async def update_saved_variables(
     saved_variables: Dict[str, str],
     request: Request,
     response: Response,
-    role: UserRole = Depends(authorize_user_or_admin),
-) -> User:
+    authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
+) -> Union[User, JSONResponse]:
+    if (
+        not authorized_user.is_email_verified
+        and not authorized_user.role == UserRole.ADMIN
+        and not authorized_user.role == UserRole.GOD
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     validate_saved_variables_count(len(saved_variables))
 
     for key, value in saved_variables.items():
         validate_variable_name(key)
         validate_variable_value(value)
+
+    errors = validate_user_variables(saved_variables)
+    if errors:
+        return JSONResponse(
+            status_code=422, content={"detail": "Validation failed", "errors": errors}
+        )
 
     updated_user: Optional[
         User
@@ -232,11 +276,13 @@ async def update_saved_variables(
     "/{user_id}/saved_variables",
     response_model=User,
     responses=common_responses,
-    dependencies=[Depends(authorize_user_or_admin)],
+    dependencies=[Depends(authorize_user_or_god)],
 )
 @limiter.limit("5/minute")
 async def delete_saved_variables(
-    user_id: PydanticObjectId, request: Request, response: Response
+    user_id: PydanticObjectId,
+    request: Request,
+    response: Response,
 ) -> User:
     updated_user: Optional[
         User
@@ -255,11 +301,14 @@ async def delete_saved_variables(
     "/{user_id}/saved_variables/{variable}",
     response_model=User,
     responses=common_responses,
-    dependencies=[Depends(authorize_user_or_admin)],
 )
 @limiter.limit("5/minute")
 async def delete_saved_variable(
-    user_id: PydanticObjectId, variable: str, request: Request, response: Response
+    user_id: PydanticObjectId,
+    variable: str,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
 ) -> User:
     validate_variable_name(variable)
     updated_user: Optional[
@@ -287,10 +336,24 @@ async def update_saved_variable(
     value: str,
     request: Request,
     response: Response,
-    role: UserRole = Depends(authorize_user_or_admin),
+    authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
 ) -> User:
+    if (
+        not authorized_user.is_email_verified
+        and not authorized_user.role == UserRole.ADMIN
+        and not authorized_user.role == UserRole.GOD
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     validate_variable_name(variable)
     validate_variable_value(value)
+
+    error = validate_user_variable(variable, value)
+    if error:
+        raise HTTPException(
+            status_code=422,
+            detail=error,
+        )
 
     updated_user: Optional[
         User
@@ -327,8 +390,6 @@ async def update_saved_variable(
     if updated_user:
         return updated_user
 
-    # Distinguish failure cause
-
     existing_user: Optional[User] = await User.get_pymongo_collection().find_one(
         {"_id": user_id},
         {"_id": 1},
@@ -354,30 +415,17 @@ async def update_saved_variable(
             },
         },
     },
-    dependencies=[Depends(require_admin)],
 )
 @limiter.limit("5/minute")
 async def ban_user(
-    user_id: PydanticObjectId, request: Request, response: Response
+    user_id: PydanticObjectId,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser = Depends(require_admin),
 ) -> User:
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
-        {"_id": user_id, "is_banned": False},
-        {"$set": {"is_banned": True}},
-        return_document=ReturnDocument.AFTER,
+    return await update_user_bool_field(
+        user_id, authorized_user, "is_banned", True, "User is already banned"
     )
-
-    if updated_user:
-        return updated_user
-
-    # Either user not found or already banned
-    user_exists = await User.find_one(User.id == user_id)
-
-    if not user_exists:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    raise HTTPException(status_code=409, detail="User is already banned")
 
 
 @router.post(
@@ -392,27 +440,76 @@ async def ban_user(
             },
         },
     },
-    dependencies=[Depends(require_admin)],
 )
 @limiter.limit("5/minute")
 async def unban_user(
-    user_id: PydanticObjectId, request: Request, response: Response
+    user_id: PydanticObjectId,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser = Depends(require_admin),
 ) -> User:
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
-        {"_id": user_id, "is_banned": True},
-        {"$set": {"is_banned": False}},
-        return_document=ReturnDocument.AFTER,
+    return await update_user_bool_field(
+        user_id, authorized_user, "is_banned", False, "User is not banned"
     )
 
-    if updated_user:
-        return updated_user
 
-    # Either user not found or already unbanned
-    user_exists = await User.find_one(User.id == user_id)
+@router.post(
+    "/{user_id}/email/verify",
+    response_model=User,
+    responses={
+        **common_responses,
+        409: {
+            "description": "User email is already verified",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "User email is already verified"}
+                }
+            },
+        },
+    },
+)
+@limiter.limit("5/minute")
+async def verify_email(
+    user_id: PydanticObjectId,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser = Depends(require_admin),
+) -> User:
+    return await update_user_bool_field(
+        user_id,
+        authorized_user,
+        "email_verified",
+        True,
+        "User email is already verified",
+    )
 
-    if not user_exists:
-        raise HTTPException(status_code=404, detail="User not found")
 
-    raise HTTPException(status_code=409, detail="User is not banned")
+@router.post(
+    "/{user_id}/email/revoke-verification",
+    response_model=User,
+    responses={
+        **common_responses,
+        409: {
+            "description": "User email is not verified",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "User email is not verified"}
+                }
+            },
+        },
+    },
+)
+@limiter.limit("5/minute")
+async def revoke_email_verification(
+    user_id: PydanticObjectId,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser = Depends(require_admin),
+) -> User:
+    return await update_user_bool_field(
+        user_id,
+        authorized_user,
+        "email_verified",
+        False,
+        "User email is not verified",
+    )

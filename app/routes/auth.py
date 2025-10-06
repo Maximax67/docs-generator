@@ -1,5 +1,7 @@
 from datetime import timedelta
-from typing import Optional
+from secrets import token_urlsafe
+from typing import List, Optional
+from urllib.parse import urljoin
 
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -12,9 +14,10 @@ from app.models.auth import (
     PasswordResetRequest,
     RegisterRequest,
     EmailChangeRequest,
+    SessionInfo,
 )
 from app.models.common_responses import DetailResponse
-from app.models.database import User
+from app.models.database import User, Session
 from app.services.auth import (
     clear_auth_cookies,
     create_jwt_token,
@@ -23,6 +26,7 @@ from app.services.auth import (
     logout_current_session,
     issue_token_pair,
     revoke_all_sessions,
+    revoke_session_by_jti,
     rotate_refresh_token,
     send_verification_email,
     set_auth_cookies,
@@ -35,6 +39,7 @@ from app.services.email import (
 from app.settings import settings
 from app.dependencies import get_current_user
 from app.limiter import limiter
+from app.services.bloom_filter import bloom_filter
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -80,8 +85,10 @@ async def register(
     except Exception:
         pass
 
-    access, refresh, expires_in = await issue_token_pair(user, body.session_name)
-    set_auth_cookies(response, access, refresh, expires_in)
+    access, refresh, expires_in, refresh_expires_in = await issue_token_pair(
+        user, body.session_name
+    )
+    set_auth_cookies(response, access, refresh, expires_in, refresh_expires_in)
 
     return DetailResponse(detail="Registered and logged in")
 
@@ -116,14 +123,15 @@ async def login(
     if user.is_banned:
         raise HTTPException(status_code=403, detail="User is banned")
 
-    # Invalidate any current session and clear cookies (best-effort)
     try:
         await logout_current_session(request, response)
     except Exception:
         pass
 
-    access, refresh, expires_in = await issue_token_pair(user, body.session_name)
-    set_auth_cookies(response, access, refresh, expires_in)
+    access, refresh, expires_in, refresh_expires_in = await issue_token_pair(
+        user, body.session_name
+    )
+    set_auth_cookies(response, access, refresh, expires_in, refresh_expires_in)
 
     return DetailResponse(detail="Logged in")
 
@@ -170,6 +178,93 @@ async def logout_all(
     return DetailResponse(detail="All sessions terminated")
 
 
+@router.get(
+    "/sessions",
+    response_model=List[SessionInfo],
+    responses={
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {"example": {"detail": "Not authenticated"}}
+            },
+        },
+    },
+)
+@limiter.limit("5/minute")
+async def list_sessions(
+    request: Request, response: Response, current_user: User = Depends(get_current_user)
+) -> List[SessionInfo]:
+    current_jti: Optional[str] = None
+    access_cookie = request.cookies.get(settings.ACCESS_COOKIE_NAME)
+    if access_cookie:
+        try:
+            payload = decode_jwt_token(access_cookie)
+            current_jti = payload["jti"]
+        except Exception:
+            current_jti = None
+
+    sessions = await Session.find(Session.user.id == current_user.id).to_list()
+    result: List[SessionInfo] = []
+    for s in sessions:
+        result.append(
+            SessionInfo(
+                id=s.id,  # type: ignore[arg-type]
+                name=s.name,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                current=(current_jti is not None and s.access_jti == current_jti),
+            )
+        )
+
+    return result
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    response_model=DetailResponse,
+    responses={
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {"example": {"detail": "Not authenticated"}}
+            },
+        },
+        404: {
+            "description": "Session not found",
+            "content": {
+                "application/json": {"example": {"detail": "Session not found"}}
+            },
+        },
+    },
+)
+@limiter.limit("5/minute")
+async def revoke_session(
+    session_id: PydanticObjectId,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+) -> DetailResponse:
+    s = await Session.find_one(Session.id == session_id, fetch_links=True)
+    if not s or s.user.id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    access_cookie = request.cookies.get(settings.ACCESS_COOKIE_NAME)
+    if access_cookie:
+        try:
+            payload = decode_jwt_token(access_cookie)
+            current_jti = payload["jti"]
+        except Exception:
+            current_jti = None
+
+    await revoke_session_by_jti(s.refresh_jti)
+    bloom_filter.add(s.access_jti)
+
+    if not current_jti or s.access_jti == current_jti:
+        clear_auth_cookies(response)
+
+    return DetailResponse(detail="Session revoked")
+
+
 @router.post(
     "/refresh",
     response_model=DetailResponse,
@@ -184,25 +279,35 @@ async def logout_all(
 )
 @limiter.limit("5/minute")
 async def refresh(request: Request, response: Response) -> DetailResponse:
-    # Read refresh token only from cookies
-    raw_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
-    if not raw_token:
+    refresh_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
+    if not refresh_token:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    payload = decode_jwt_token(raw_token)
-    if payload.get("type") != "refresh":
+    payload = decode_jwt_token(refresh_token)
+    if payload.get("type") != TokenType.REFRESH:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     try:
         user_id = PydanticObjectId(payload["sub"])
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid subject in token")
 
-    jti = payload.get("jti")
-    if not isinstance(jti, str):
+    jti_refresh = payload.get("jti")
+    if not isinstance(jti_refresh, str):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    access, refresh, expires_in = await rotate_refresh_token(user_id, jti)
-    set_auth_cookies(response, access, refresh, expires_in)
+    access_token = request.cookies.get(settings.ACCESS_COOKIE_NAME)
+    if access_token:
+        try:
+            access_payload = decode_jwt_token(access_token)
+            if access_payload.get("type") == TokenType.ACCESS:
+                bloom_filter.add(access_payload["jti"])
+        except Exception:
+            pass
+
+    access, refresh, expires_in, refresh_expires_in = await rotate_refresh_token(
+        user_id, jti_refresh
+    )
+    set_auth_cookies(response, access, refresh, expires_in, refresh_expires_in)
 
     return DetailResponse(detail="Refreshed")
 
@@ -223,7 +328,7 @@ async def refresh(request: Request, response: Response) -> DetailResponse:
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def me(
     request: Request, response: Response, current_user: User = Depends(get_current_user)
 ) -> User:
@@ -267,6 +372,7 @@ async def email_send_confirmation(
         raise HTTPException(status_code=409, detail="Email already verified")
 
     await send_verification_email(current_user)
+
     return DetailResponse(detail="Verification email sent")
 
 
@@ -284,7 +390,7 @@ async def email_send_confirmation(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def verify_email(
     request: Request,
     response: Response,
@@ -304,11 +410,17 @@ async def verify_email(
     user = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if payload.get("email") != user.email or payload.get("jti") in bloom_filter:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
     if user.email_verified:
-        return DetailResponse(detail="Email already verified")
+        raise HTTPException(status_code=409, detail="Email already verified")
 
     user.email_verified = True
-    await user.save()
+    await user.save_changes()
+
+    bloom_filter.add(payload["jti"])
 
     return DetailResponse(detail="Email verified")
 
@@ -360,7 +472,7 @@ async def email_change(
 
     current_user.email = new_email
     current_user.email_verified = False
-    await current_user.save()
+    await current_user.save_changes()
 
     await send_verification_email(current_user)
 
@@ -377,15 +489,15 @@ async def password_forgot(
 ) -> DetailResponse:
     user = await User.find_one(User.email == body.email)
     if not user:
-        # Do not reveal whether the email exists
         return DetailResponse(detail="If the email exists, a reset link has been sent")
 
     token = create_jwt_token(
         subject=str(user.id),
         token_type=TokenType.PASSWORD_RESET,
         expires_delta=timedelta(hours=1),
+        jti=token_urlsafe(32),
     )
-    url = f"{settings.API_URL}/auth/password/change?token={token}"
+    url = urljoin(str(settings.FRONTEND_URL), f"/reset-password?token={token}")
     html = render_reset_password_email(user.first_name or user.email, url)
 
     await send_email(user.email, "Password reset", html)
@@ -446,7 +558,7 @@ async def password_reset(
         return DetailResponse(detail="Email already verified")
 
     user.password_hash = hash_password(body.new_password)
-    await user.save()
+    await user.save_changes()
 
     await revoke_all_sessions(user.id)  # type: ignore[arg-type]
     clear_auth_cookies(response)
@@ -483,7 +595,7 @@ async def password_change(
         )
 
     user.password_hash = hash_password(body.new_password)
-    await user.save()
+    await user.save_changes()
 
     await revoke_all_sessions(user.id)  # type: ignore[arg-type]
     clear_auth_cookies(response)

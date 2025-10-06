@@ -1,13 +1,14 @@
 from typing import Optional
 
 from beanie import PydanticObjectId
-from fastapi import Depends, HTTPException, Header, Request, status
+from fastapi import HTTPException, Header, Request, status
 from fastapi.security import HTTPBearer
 
 from app.enums import TokenType, UserRole
 from app.models.database import User
 from app.services.auth import decode_jwt_token
 from app.settings import settings
+from app.models.auth import AuthorizedUser
 
 http_bearer = HTTPBearer()
 
@@ -24,7 +25,7 @@ def verify_telegram_token(
     return x_telegram_token
 
 
-async def get_current_user(request: Request) -> User:
+def get_authorized_user(request: Request) -> AuthorizedUser:
     access_token: Optional[str] = request.cookies.get(settings.ACCESS_COOKIE_NAME)
     if not access_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -38,26 +39,70 @@ async def get_current_user(request: Request) -> User:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid subject in token")
 
-    user = await User.find_one(User.id == user_id)
+    role = payload.get("role")
+    if role is None or role not in UserRole:
+        raise HTTPException(status_code=401, detail="Invalid role in token")
+
+    is_email_verified = payload.get("email_verified")
+    if is_email_verified is None or not isinstance(is_email_verified, bool):
+        raise HTTPException(status_code=401, detail="Invalid email verified in token")
+
+    return AuthorizedUser(
+        user_id=user_id,
+        role=UserRole(role),
+        is_email_verified=is_email_verified,
+    )
+
+
+async def get_current_user(request: Request) -> User:
+    authorized_user = get_authorized_user(request)
+
+    user = await User.find_one(User.id == authorized_user.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     return user
 
 
-async def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != UserRole.ADMIN.value:
+async def require_admin(request: Request) -> AuthorizedUser:
+    authorized_user = get_authorized_user(request)
+    if authorized_user.role != UserRole.ADMIN and authorized_user.role != UserRole.GOD:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    return current_user
+    return authorized_user
+
+
+async def require_god(request: Request) -> AuthorizedUser:
+    authorized_user = get_authorized_user(request)
+    if authorized_user.role != UserRole.GOD:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    return authorized_user
 
 
 async def authorize_user_or_admin(
-    user_id: PydanticObjectId, current_user: User = Depends(get_current_user)
-) -> UserRole:
-    role = current_user.role
+    user_id: PydanticObjectId, request: Request
+) -> AuthorizedUser:
+    authorized_user = get_authorized_user(request)
+    role = authorized_user.role
 
-    if role == UserRole.ADMIN or (role == UserRole.USER and current_user.id == user_id):
-        return role
+    if (
+        role == UserRole.ADMIN
+        or role == UserRole.GOD
+        or authorized_user.user_id == user_id
+    ):
+        return authorized_user
+
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
+async def authorize_user_or_god(
+    user_id: PydanticObjectId, request: Request
+) -> AuthorizedUser:
+    authorized_user = get_authorized_user(request)
+    role = authorized_user.role
+
+    if role == UserRole.GOD or authorized_user.user_id == user_id:
+        return authorized_user
 
     raise HTTPException(status_code=403, detail="Forbidden")

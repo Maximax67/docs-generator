@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Union
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.dependencies import require_admin
@@ -6,11 +7,17 @@ from app.models.common_responses import DetailResponse
 from app.services.google_drive import (
     format_drive_file_metadata,
     format_drive_folder_metadata,
+    get_accessible_files_and_folders,
     get_folder_contents,
     get_accessible_folders,
     get_drive_item_metadata,
 )
-from app.models.google import FolderContents, FolderListResponse
+from app.models.google import (
+    FolderContents,
+    FolderListResponse,
+    FolderTree,
+    FolderTreeResponse,
+)
 from app.models.database import PinnedFolder
 from app.utils import ensure_folder
 from app.limiter import limiter
@@ -56,6 +63,59 @@ async def list_folders(
             result.append(folder)
 
     return FolderListResponse(folders=result)
+
+
+@router.get("/tree", response_model=FolderTreeResponse)
+@limiter.limit("5/minute")
+async def get_folders_tree(request: Request, response: Response) -> FolderTreeResponse:
+    pinned_folder_objs = await PinnedFolder.find_all().to_list()
+    pinned_ids = {f.folder_id for f in pinned_folder_objs}
+
+    drive_items = get_accessible_files_and_folders()
+    children_map = defaultdict(list)
+
+    pinned_items: List[Dict[str, Any]] = []
+    roots: List[FolderTree] = []
+
+    for item in drive_items:
+        if item["id"] in pinned_ids:
+            pinned_items.append(item)
+            continue
+
+        for parent_id in item.get("parents", []):
+            children_map[parent_id].append(item)
+
+    def build_node(item: Dict[str, Any], parent: Optional[FolderTree]) -> None:
+        mime_type = item["mimeType"]
+
+        if mime_type == "application/vnd.google-apps.folder":
+            folder = format_drive_folder_metadata(item)
+            folder.is_pinned = folder.id in pinned_ids
+
+            folder_tree = FolderTree(current_folder=folder, documents=[], folders=[])
+            if folder.is_pinned:
+                if parent is not None:
+                    raise ValueError("Children can not be pinned")
+
+                roots.append(folder_tree)
+            elif parent is not None:
+                parent.folders.append(folder_tree)
+            else:
+                raise ValueError("Root folder should be pinned")
+
+            for child in children_map.get(folder.id, []):
+                build_node(child, folder_tree)
+        elif mime_type in DOC_COMPATIBLE_MIME_TYPES:
+            if parent is None:
+                raise ValueError("Parent can not be null for a file")
+
+            document = format_drive_file_metadata(item)
+            parent.documents.append(document)
+
+    for item in pinned_items:
+        build_node(item, None)
+
+    return FolderTreeResponse(tree=roots)
 
 
 @router.post(

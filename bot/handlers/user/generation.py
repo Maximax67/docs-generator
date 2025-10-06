@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from app.settings import settings
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.enums import VariableType
-from app.models.database import Feedback, Result, PinnedFolder, User
+from app.models.database import Result, PinnedFolder, User
 from app.models.google import DriveFile, DriveFolder
 from app.models.variables import MultichoiceVariable, PlainVariable
 from app.services.documents import (
@@ -23,7 +23,6 @@ from app.services.google_drive import (
 )
 
 from app.services.variables import is_variable_value_valid, validate_variable
-from app.utils import format_document_user_mention
 from bot.keyboards.callback import GenerationCallback
 from bot.keyboards.inline.document_preview import document_preview_keyboard
 from bot.keyboards.inline.document_selector import document_selector_keyboard
@@ -606,6 +605,6 @@ async def save_variables_handler(callback: CallbackQuery, state: FSMContext) -> 
         if filled_value and variable.allow_save:
             user.saved_variables[variable.variable] = filled_value
 
-    await user.save()
+    await user.save_changes()
     await callback.message.answer("Дані успішно збережено")
     await state.clear()

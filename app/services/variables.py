@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 
 from app.settings import settings
 from app.models.variables import (
@@ -9,6 +9,7 @@ from app.models.variables import (
 )
 from app.services.config import get_variables_dict
 from app.services.rules import validate_value
+from app.enums import VariableType
 
 
 def is_variable_name_valid(variable: str) -> bool:
@@ -54,3 +55,30 @@ def validate_variable(
         return None
 
     return "Unknown variable type"
+
+
+def validate_user_variable(name: str, value: str) -> Optional[str]:
+    variable = get_variable(name)
+    if not variable:
+        return "Unknown variable"
+
+    if variable.type == VariableType.CONSTANT:
+        return "Can not save constant variable"
+
+    if not variable.allow_save:
+        return "Saving not allowed"
+
+    if not value:
+        return "Value not provided"
+
+    return validate_variable(variable, value)
+
+
+def validate_user_variables(user_input: Dict[str, str]) -> Dict[str, str]:
+    errors: Dict[str, str] = {}
+    for name, value in user_input.items():
+        error = validate_user_variable(name, value)
+        if error:
+            errors[name] = error
+
+    return errors

@@ -7,16 +7,21 @@ class Settings(BaseSettings):
     APP_TITLE: str = "Docs Generator"
     APP_VERSION: str = "1.0.0"
 
+    ALLOWED_ORIGINS: str
+
     ADMIN_CHAT_ID: int
     ADMIN_GREETING_THREAD_ID: Optional[int] = None
     ADMIN_ERRORS_THREAD_ID: Optional[int] = None
     ADMIN_DOCUMENTS_THREAD_ID: Optional[int] = None
     ADMIN_FEEDBACK_THREAD_ID: Optional[int] = None
 
+    ADMIN_GREETING_ENABLED: bool = True
+
     SERVICE_ACCOUNT_FILE: str
     DATABASE_URL: SecretStr
 
     API_URL: HttpUrl
+    FRONTEND_URL: HttpUrl
 
     TELEGRAM_BOT_TOKEN: SecretStr
     TELEGRAM_SECRET: SecretStr
@@ -35,7 +40,6 @@ class Settings(BaseSettings):
     MAX_DOCUMENT_VARIABLES: int = 1000
     MAX_SAVED_VARIABLES: int = 100
 
-    # JWT settings
     JWT_SECRET: SecretStr
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRES_MINUTES: int = 15
@@ -43,15 +47,12 @@ class Settings(BaseSettings):
     JWT_ISSUER: Optional[str] = None
     JWT_AUDIENCE: Optional[str] = None
 
-    # Cookie settings for auth
     ACCESS_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
     COOKIE_DOMAIN: Optional[str] = None
     COOKIE_SECURE: bool = True
     COOKIE_SAMESITE: str = "lax"  # 'lax' | 'strict' | 'none'
-    COOKIE_PATH: str = "/"
 
-    # SMTP settings
     SMTP_HOST: str
     SMTP_PORT: int = 587
     SMTP_USERNAME: str

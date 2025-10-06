@@ -15,7 +15,10 @@ from app.google_credentials import credentials
 drive_client = build("drive", "v3", credentials=credentials)
 
 
-def get_results_by_query(query: str) -> List[Any]:
+def get_results_by_query(
+    query: str,
+    fields: str = "nextPageToken, files(id, name, mimeType, modifiedTime, createdTime, webViewLink, size)",
+) -> List[Dict[str, Any]]:
     results = []
     page_token = None
 
@@ -25,7 +28,7 @@ def get_results_by_query(query: str) -> List[Any]:
             .list(
                 q=query,
                 spaces="drive",
-                fields="nextPageToken, files(id, name, mimeType, modifiedTime, createdTime, webViewLink, size)",
+                fields=fields,
                 pageToken=page_token,
                 pageSize=1000,
             )
@@ -39,17 +42,29 @@ def get_results_by_query(query: str) -> List[Any]:
     return results
 
 
-def get_folder_contents(folder_id: str) -> List[Any]:
+def get_folder_contents(folder_id: str) -> List[Dict[str, Any]]:
     return get_results_by_query(f"'{folder_id}' in parents")
 
 
-def get_accessible_folders() -> List[Any]:
+def get_accessible_folders() -> List[Dict[str, Any]]:
     return get_results_by_query(
         "mimeType='application/vnd.google-apps.folder' and trashed=false"
     )
 
 
-def get_accessible_documents() -> List[Any]:
+def get_accessible_files_and_folders() -> List[Dict[str, Any]]:
+    mime_types_query = " or ".join(
+        [f"mimeType='{mime}'" for mime in DOC_COMPATIBLE_MIME_TYPES]
+    )
+    mime_types_query += " or mimeType='application/vnd.google-apps.folder'"
+
+    return get_results_by_query(
+        f"({mime_types_query}) and trashed=false",
+        fields="nextPageToken, files(id, name, mimeType, parents, modifiedTime, createdTime, webViewLink, size)",
+    )
+
+
+def get_accessible_documents() -> List[Dict[str, Any]]:
     mime_types_query = " or ".join(
         [f"mimeType='{mime}'" for mime in DOC_COMPATIBLE_MIME_TYPES]
     )

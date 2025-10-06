@@ -69,7 +69,7 @@ async def get_config_file(request: Request, response: Response) -> DriveFile:
 
 
 @router.get("/validation_rules", response_model=List[ValidationRule])
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_rules(request: Request, response: Response) -> List[ValidationRule]:
     return get_validation_rules()
 
@@ -84,7 +84,7 @@ async def get_rules(request: Request, response: Response) -> List[ValidationRule
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_rule(rule: str, request: Request, response: Response) -> ValidationRule:
     validate_rule_name(rule)
 
@@ -127,7 +127,7 @@ async def get_rule(rule: str, request: Request, response: Response) -> Validatio
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def validate_rule(
     rule: str, body: ValidationRequest, request: Request, response: Response
 ) -> Union[ValidationResult, JSONResponse]:
@@ -151,7 +151,7 @@ async def validate_rule(
     "/variables",
     response_model=VariablesResponse,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_all_variables(
     request: Request,
     response: Response,
@@ -176,7 +176,7 @@ async def get_all_variables(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_variable_config(
     variable: str, request: Request, response: Response
 ) -> Union[PlainVariable, MultichoiceVariable, ConstantVariable]:
@@ -223,7 +223,7 @@ async def get_variable_config(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def validate_variable_value(
     variable: str, body: ValidationRequest, request: Request, response: Response
 ) -> Union[ValidationResult, JSONResponse]:

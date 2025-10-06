@@ -49,7 +49,7 @@ async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
         return 0
 
     user.is_banned = to_ban
-    await user.save()
+    await user.save_changes()
 
     return user_id
 

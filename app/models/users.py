@@ -2,6 +2,7 @@ from typing import Dict, List, Optional, Annotated
 from pydantic import BaseModel, EmailStr, Field
 
 from app.models.database import Result, User
+from app.enums import UserRole
 
 
 class UserUpdateRequest(BaseModel):
@@ -14,6 +15,7 @@ class UserUpdateRequest(BaseModel):
     ] = None
     saved_variables: Optional[Dict[str, str]] = None
     is_banned: Optional[bool] = None
+    role: Optional[UserRole] = None
 
 
 class AllUsersResponse(BaseModel):
