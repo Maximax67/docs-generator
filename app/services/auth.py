@@ -207,7 +207,7 @@ async def issue_token_pair(
         timedelta(minutes=settings.ACCESS_TOKEN_EXPIRES_MINUTES).total_seconds()
     )
     refresh_expires_in = int(
-        timedelta(minutes=settings.REFRESH_TOKEN_EXPIRES_DAYS).total_seconds()
+        timedelta(days=settings.REFRESH_TOKEN_EXPIRES_DAYS).total_seconds()
     )
 
     return access, refresh, expires_in, refresh_expires_in
