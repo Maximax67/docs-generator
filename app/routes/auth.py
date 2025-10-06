@@ -32,10 +32,7 @@ from app.services.auth import (
     set_auth_cookies,
     verify_password,
 )
-from app.services.email import (
-    render_reset_password_email,
-    send_email,
-)
+from app.services.email import send_email
 from app.settings import settings
 from app.dependencies import get_current_user
 from app.limiter import limiter
@@ -498,9 +495,8 @@ async def password_forgot(
         jti=token_urlsafe(32),
     )
     url = urljoin(str(settings.FRONTEND_URL), f"/reset-password?token={token}")
-    html = render_reset_password_email(user.first_name or user.email, url)
 
-    await send_email(user.email, "Password reset", html)
+    await send_email(user.email, "Password reset", "reset", user.first_name, url)
 
     return DetailResponse(detail="If the email exists, a reset link has been sent")
 

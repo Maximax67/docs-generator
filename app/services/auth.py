@@ -11,7 +11,7 @@ from passlib.context import CryptContext
 from secrets import token_urlsafe
 
 from app.models.database import Session, User
-from app.services.email import render_confirm_email, send_email
+from app.services.email import send_email
 from app.settings import settings
 from app.enums import TokenType
 from app.services.bloom_filter import bloom_filter
@@ -87,9 +87,8 @@ async def send_verification_email(user: User) -> None:
     )
 
     url = urljoin(str(settings.FRONTEND_URL), f"/verify-email?token={token}")
-    html = render_confirm_email(user.first_name or user.email, url)
 
-    await send_email(user.email, "Verify your email", html)
+    await send_email(user.email, "Verify your email", "confirm", user.first_name, url)
 
 
 def auth_user(request: Request) -> PydanticObjectId:

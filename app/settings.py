@@ -53,15 +53,8 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = True
     COOKIE_SAMESITE: str = "lax"  # 'lax' | 'strict' | 'none'
 
-    SMTP_HOST: str
-    SMTP_PORT: int = 587
-    SMTP_USERNAME: str
-    SMTP_PASSWORD: SecretStr
-    SMTP_USE_TLS: bool = True
-    SMTP_FROM_EMAIL: str
-
-    EMAIL_VERIFICATION_TEMPLATE: str = "./app/mail/confirm.handlebars"
-    PASSWORD_RESET_TEMPLATE: str = "./app/mail/reset-password.handlebars"
+    MAILER_URL: str
+    MAILER_TOKEN: str
 
     model_config = SettingsConfigDict(env_file=".env")
 
