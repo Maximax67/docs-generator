@@ -15,3 +15,4 @@ PyJWT
 pybars3
 passlib
 bcrypt<4
+email-validator
