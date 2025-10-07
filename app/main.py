@@ -84,4 +84,4 @@ app.add_exception_handler(TemplateError, document_validation_exception_handler)
 app.add_exception_handler(Exception, async_exception_handler)
 
 app.include_router(api.router)
-app.mount("/", StaticFiles(directory="/static", html=True))
+app.mount("/", StaticFiles(directory="/app/static", html=True))
