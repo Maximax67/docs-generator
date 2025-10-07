@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator
 from beanie import init_beanie
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from jinja2 import TemplateError
 from pymongo import AsyncMongoClient
 from slowapi import _rate_limit_exceeded_handler
@@ -83,3 +84,4 @@ app.add_exception_handler(TemplateError, document_validation_exception_handler)
 app.add_exception_handler(Exception, async_exception_handler)
 
 app.include_router(api.router)
+app.mount("/", StaticFiles(directory="/static", html=True))

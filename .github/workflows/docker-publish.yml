@@ -29,3 +29,8 @@ jobs:
           file: Dockerfile
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/docs-generator:latest
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_FRONTEND_URL=${{ secrets.NEXT_PUBLIC_FRONTEND_URL }}
+            NEXT_PUBLIC_SWAGGER_URL=${{ secrets.NEXT_PUBLIC_SWAGGER_URL }}
+            NEXT_PUBLIC_POSTMAN_URL=${{ secrets.NEXT_PUBLIC_POSTMAN_URL }}
