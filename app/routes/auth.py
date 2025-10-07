@@ -476,6 +476,8 @@ async def email_change(
     await current_user.save_changes()
 
     await send_verification_email(current_user)
+    await revoke_all_sessions(current_user.id)  # type: ignore[arg-type]
+    clear_auth_cookies(response)
 
     return DetailResponse(detail="Email updated. Verification sent")
 
