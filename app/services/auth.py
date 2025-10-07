@@ -214,7 +214,7 @@ async def issue_token_pair(
 
 
 async def rotate_refresh_token(
-    user_id: PydanticObjectId, old_jti: str
+    user_id: PydanticObjectId, old_jti: str, session_name: str
 ) -> Tuple[str, str, int, int]:
     session = await Session.find_one(Session.refresh_jti == old_jti, fetch_links=True)
     if not session or session.user.id != user_id:
@@ -226,7 +226,7 @@ async def rotate_refresh_token(
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    return await issue_token_pair(user, session.name, session)
+    return await issue_token_pair(user, session_name, session)
 
 
 async def revoke_all_sessions(user_id: PydanticObjectId) -> None:

@@ -11,13 +11,11 @@ class RegisterRequest(BaseModel):
     password: Annotated[str, Field(min_length=8, max_length=32)]
     first_name: Annotated[str, Field(min_length=1, max_length=32)]
     last_name: Optional[Annotated[str, Field(min_length=1, max_length=32)]] = None
-    session_name: Optional[Annotated[str, Field(min_length=1, max_length=64)]] = None
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: Annotated[str, Field(min_length=8, max_length=64)]
-    session_name: Optional[Annotated[str, Field(min_length=1, max_length=64)]] = None
 
 
 class PasswordForgotRequest(BaseModel):

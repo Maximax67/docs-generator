@@ -2,8 +2,9 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 from beanie import PydanticObjectId
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from pymongo import ReturnDocument
+from user_agents import parse  # type: ignore[import-untyped]
 
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.services.rules import is_rule_name_valid
@@ -113,3 +114,10 @@ async def update_user_bool_field(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     raise HTTPException(status_code=409, detail=conflict_detail)
+
+
+def get_session_name_from_user_agent(request: Request) -> str:
+    user_agent_str = request.headers.get("user-agent", "")
+    user_agent = parse(user_agent_str)
+
+    return str(user_agent).replace(" / ", ", ")

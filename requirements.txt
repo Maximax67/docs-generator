@@ -16,3 +16,4 @@ passlib
 bcrypt<4
 email-validator
 httpx
+user_agents

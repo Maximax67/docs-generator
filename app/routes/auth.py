@@ -37,6 +37,7 @@ from app.settings import settings
 from app.dependencies import get_current_user
 from app.limiter import limiter
 from app.services.bloom_filter import bloom_filter
+from app.utils import get_session_name_from_user_agent
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -82,8 +83,9 @@ async def register(
     except Exception:
         pass
 
+    session_name = get_session_name_from_user_agent(request)
     access, refresh, expires_in, refresh_expires_in = await issue_token_pair(
-        user, body.session_name
+        user, session_name
     )
     set_auth_cookies(response, access, refresh, expires_in, refresh_expires_in)
 
@@ -125,8 +127,9 @@ async def login(
     except Exception:
         pass
 
+    session_name = get_session_name_from_user_agent(request)
     access, refresh, expires_in, refresh_expires_in = await issue_token_pair(
-        user, body.session_name
+        user, session_name
     )
     set_auth_cookies(response, access, refresh, expires_in, refresh_expires_in)
 
@@ -301,8 +304,9 @@ async def refresh(request: Request, response: Response) -> DetailResponse:
         except Exception:
             pass
 
+    session_name = get_session_name_from_user_agent(request)
     access, refresh, expires_in, refresh_expires_in = await rotate_refresh_token(
-        user_id, jti_refresh
+        user_id, jti_refresh, session_name
     )
     set_auth_cookies(response, access, refresh, expires_in, refresh_expires_in)
 
