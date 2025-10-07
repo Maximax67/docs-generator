@@ -1,5 +1,10 @@
+import regex as re
+
+
 CHUNK_DOWNLOAD_THRESHOLD = 10 * 1024 * 1024
 MAX_DOWNLOAD_RETRIES = 1
+
+NAME_REGEX = re.compile(r"^[\p{L}]+(?:[’'\- ]\p{L}+)*$", re.UNICODE)
 
 GOOGLE_AUTH_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
