@@ -8,7 +8,7 @@ from beanie import PydanticObjectId
 from app.enums import UserRole
 from app.limiter import limiter
 from app.models.common_responses import DetailResponse
-from app.models.users import AllUsersResponse, UserDocumentsResponse, UserUpdateRequest
+from app.models.users import AllUsersResponse, UserUpdateRequest
 from app.services.auth import clear_auth_cookies
 from app.services.bloom_filter import bloom_filter
 from app.services.variables import validate_user_variable, validate_user_variables
@@ -191,23 +191,32 @@ async def delete_user(
     return DetailResponse(detail="User deleted")
 
 
-@router.get(
-    "/{user_id}/documents",
-    response_model=UserDocumentsResponse,
+@router.delete(
+    "/{user_id}/generations",
+    response_model=DetailResponse,
     responses=common_responses,
-    dependencies=[Depends(authorize_user_or_admin)],
 )
 @limiter.limit("5/minute")
-async def get_user_documents(
-    user_id: PydanticObjectId, request: Request, response: Response
-) -> UserDocumentsResponse:
+async def delete_user_generated_documents(
+    user_id: PydanticObjectId,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser = Depends(authorize_user_or_admin),
+) -> DetailResponse:
     user = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    documents = await Result.find(Result.user.id == user.id).to_list()
+    if (
+        user.role == UserRole.ADMIN or user.role == UserRole.GOD
+    ) and authorized_user.role != UserRole.GOD:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
-    return UserDocumentsResponse(documents=documents)
+    result = await Result.find(Result.user.id == user.id).delete()
+    if not result:
+        raise HTTPException(status_code=404, detail="Generations not found")
+
+    return DetailResponse(detail=f"Deleted: {result.deleted_count}")
 
 
 @router.get(

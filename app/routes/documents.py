@@ -329,7 +329,9 @@ async def generate_document_with_variables(
 
     background_tasks.add_task(os.remove, pdf_file_path)
 
-    await Result(template_id=document_id, variables=context).insert()
+    await Result(
+        template_id=document_id, template_name=file.name, variables=context
+    ).insert()
 
     return FileResponse(
         path=pdf_file_path,
@@ -386,7 +388,12 @@ async def generate_document_with_variables_for_user(
     if not user_exists:
         raise HTTPException(status_code=404, detail="User not found")
 
-    await Result(user=user_id, template_id=document_id, variables=context).insert()
+    await Result(
+        user=user_id,
+        template_id=document_id,
+        template_name=file.name,
+        variables=context,
+    ).insert()
 
     return FileResponse(
         path=pdf_file_path,

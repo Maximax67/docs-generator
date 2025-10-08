@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request, Response
 
 from app.settings import settings
 from app.models.common_responses import DetailResponse
-from app.routes import auth, config, documents, folders, telegram, users
+from app.routes import auth, config, documents, folders, telegram, users, generations
 from app.limiter import limiter
 
 
@@ -32,4 +32,5 @@ router.include_router(auth.router)
 router.include_router(users.router)
 router.include_router(folders.router)
 router.include_router(documents.router)
+router.include_router(generations.router)
 router.include_router(config.router)

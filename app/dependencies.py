@@ -1,7 +1,7 @@
 from typing import Optional
 
 from beanie import PydanticObjectId
-from fastapi import HTTPException, Header, Request, status
+from fastapi import HTTPException, Header, Query, Request, status
 from fastapi.security import HTTPBearer
 
 from app.enums import TokenType, UserRole
@@ -90,6 +90,23 @@ async def authorize_user_or_admin(
         role == UserRole.ADMIN
         or role == UserRole.GOD
         or authorized_user.user_id == user_id
+    ):
+        return authorized_user
+
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
+async def authorize_user_or_admin_query(
+    request: Request,
+    user_id: Optional[str] = Query(None),
+) -> AuthorizedUser:
+    authorized_user = get_authorized_user(request)
+    role = authorized_user.role
+
+    if (
+        role == UserRole.ADMIN
+        or role == UserRole.GOD
+        or str(authorized_user.user_id) == user_id
     ):
         return authorized_user
 

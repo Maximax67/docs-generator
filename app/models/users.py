@@ -1,7 +1,7 @@
 from typing import Dict, List, Optional, Annotated
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.models.database import Result, User
+from app.models.database import User
 from app.enums import UserRole
 from app.constants import NAME_REGEX
 
@@ -36,7 +36,3 @@ class UserUpdateRequest(BaseModel):
 
 class AllUsersResponse(BaseModel):
     users: List[User]
-
-
-class UserDocumentsResponse(BaseModel):
-    documents: List[Result]

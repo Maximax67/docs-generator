@@ -76,6 +76,7 @@ class User(BaseDocument):
 class Result(BaseDocument):
     user: Optional[Link[User]] = None
     template_id: str
+    template_name: str
     variables: Dict[str, str] = {}
 
     class Settings:

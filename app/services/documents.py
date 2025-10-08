@@ -134,7 +134,9 @@ def generate_preview(document: DriveFile) -> Tuple[str, Set[str]]:
 
 
 def get_document_and_prepare_context(
-    document: DriveFile, variables: Dict[str, str]
+    document: DriveFile,
+    variables: Dict[str, str],
+    exclude_constants: Optional[bool] = None,
 ) -> Tuple[str, Dict[str, str]]:
     available_variables = get_variables_dict()
     docx_path, document_variables = download_document_and_get_variables(document)
@@ -151,7 +153,7 @@ def get_document_and_prepare_context(
                 errors[var_name] = "Unknown variable"
                 continue
 
-            if isinstance(variable, ConstantVariable):
+            if exclude_constants is None and isinstance(variable, ConstantVariable):
                 errors[var_name] = "Cannot set constant variable"
                 continue
 
@@ -161,7 +163,9 @@ def get_document_and_prepare_context(
             if variable is None:
                 continue
 
-            if isinstance(variable, ConstantVariable):
+            if (exclude_constants is None or exclude_constants) and isinstance(
+                variable, ConstantVariable
+            ):
                 context[var_name] = variable.value
                 continue
 
@@ -198,10 +202,14 @@ def validate_variables_for_document(
 
 
 def generate_document(
-    document: DriveFile, variables: Dict[str, str]
+    document: DriveFile,
+    variables: Dict[str, str],
+    exclude_constants: Optional[bool] = None,
 ) -> Tuple[str, Dict[str, str]]:
     rendered_path: Optional[str] = None
-    docx_path, context = get_document_and_prepare_context(document, variables)
+    docx_path, context = get_document_and_prepare_context(
+        document, variables, exclude_constants
+    )
 
     try:
         doc = DocxTemplate(docx_path)

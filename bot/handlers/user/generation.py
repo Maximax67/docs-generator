@@ -274,6 +274,7 @@ async def show_selected_document(
             selected_document=document_id,
             context=context,
             user_id=user_id,
+            template_name=file.name,
         )
         await generate_document_result(callback.message, state, True)
         return
@@ -501,6 +502,7 @@ async def generate_document_result(
 
     if already_generated:
         context = await state.get_value("context")
+        template_name = await state.get_value("template_name")
     else:
         await delete_last_message(message, state)
 
@@ -538,6 +540,7 @@ async def generate_document_result(
             elif not saved_value and save_data_option == 0:
                 save_data_option = 1  # Suggest save
 
+        template_name = file.name
         pdf_file_path, context = generate_document(file, variables)
 
         if file.mime_type == "application/vnd.google-apps.document":
@@ -561,6 +564,7 @@ async def generate_document_result(
     await Result(
         user=user,
         template_id=document_id,
+        template_name=template_name,
         variables=context,
     ).insert()
 
