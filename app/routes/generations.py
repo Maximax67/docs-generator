@@ -83,7 +83,7 @@ async def get_results_documents(
                 raise HTTPException(status_code=403, detail="Forbidden")
 
             try:
-                query["user._id"] = PydanticObjectId(user_id)
+                query["user.$id"] = PydanticObjectId(user_id)
             except Exception:
                 raise HTTPException(
                     status_code=422,
@@ -96,6 +96,11 @@ async def get_results_documents(
     total_items = await Result.find(query).count()
     total_pages = max((total_items + page_size - 1) // page_size, 1)
     skip = (page - 1) * page_size
+
+    user_id_query = query.get("user.$id")
+    if user_id_query:
+        del query["user.$id"]
+        query["user._id"] = user_id_query
 
     results = (
         await Result.find(query, fetch_links=True)
