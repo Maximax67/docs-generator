@@ -76,19 +76,21 @@ async def get_results_documents(
             query["user"] = None
 
         else:
-            if (
-                authorized_user.role == UserRole.USER
-                and authorized_user.user_id != user_id
-            ):
-                raise HTTPException(status_code=403, detail="Forbidden")
-
             try:
-                query["user.$id"] = PydanticObjectId(user_id)
+                user_id_object = PydanticObjectId(user_id)
             except Exception:
                 raise HTTPException(
                     status_code=422,
                     detail='User id should be PydanticObjectId or "null"',
                 )
+
+            if (
+                authorized_user.role == UserRole.USER
+                and authorized_user.user_id != user_id_object
+            ):
+                raise HTTPException(status_code=403, detail="Forbidden")
+
+            query["user.$id"] = user_id_object
 
     if template_id:
         query["template_id"] = template_id
