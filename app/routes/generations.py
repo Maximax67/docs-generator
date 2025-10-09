@@ -53,7 +53,7 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     response_model=PaginatedResults,
     responses={401: common_responses[401], 403: common_responses[403]},
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_results_documents(
     request: Request,
     response: Response,
@@ -120,7 +120,7 @@ async def get_results_documents(
     response_model=Result,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_result_document_by_id(
     result_id: PydanticObjectId,
     request: Request,
@@ -191,9 +191,14 @@ async def regenerate_result_by_id(
 
     background_tasks.add_task(os.remove, pdf_file_path)
 
+    if file.mime_type == "application/vnd.google-apps.document":
+        filename = file.name
+    else:
+        filename, _ = os.path.splitext(file.name)
+
     await Result(
         template_id=result.template_id,
-        template_name=file.name,
+        template_name=filename,
         variables=context,
         user=authorized_user.user_id,
     ).insert()

@@ -176,10 +176,11 @@ def get_document_and_prepare_context(
 
                 continue
 
-            error = validate_variable(variable, value)
-            if error:
-                errors[var_name] = error
-                continue
+            if not isinstance(variable, ConstantVariable):
+                error = validate_variable(variable, value)
+                if error:
+                    errors[var_name] = error
+                    continue
 
             context[var_name] = value
 

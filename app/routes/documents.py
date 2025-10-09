@@ -329,8 +329,13 @@ async def generate_document_with_variables(
 
     background_tasks.add_task(os.remove, pdf_file_path)
 
+    if file.mime_type == "application/vnd.google-apps.document":
+        filename = file.name
+    else:
+        filename, _ = os.path.splitext(file.name)
+
     await Result(
-        template_id=document_id, template_name=file.name, variables=context
+        template_id=document_id, template_name=filename, variables=context
     ).insert()
 
     return FileResponse(
@@ -388,10 +393,15 @@ async def generate_document_with_variables_for_user(
     if not user_exists:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if file.mime_type == "application/vnd.google-apps.document":
+        filename = file.name
+    else:
+        filename, _ = os.path.splitext(file.name)
+
     await Result(
         user=user_id,
         template_id=document_id,
-        template_name=file.name,
+        template_name=filename,
         variables=context,
     ).insert()
 
