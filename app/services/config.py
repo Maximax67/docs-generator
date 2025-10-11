@@ -46,7 +46,7 @@ def _det_config_dfs() -> Dict[ConfigSheetName, pd.DataFrame]:
     config_dfs: Dict[ConfigSheetName, pd.DataFrame] = {}
 
     for sheet_name in ConfigSheetName:
-        df = pd.read_excel(file, sheet_name.value)
+        df = pd.read_excel(file, sheet_name.value, engine="openpyxl")
         config_dfs[sheet_name] = df
 
     file.close()
@@ -67,7 +67,7 @@ def update_cache() -> None:
     rules: Dict[str, ValidationRule] = {}
 
     for _, row in validation_df.iterrows():
-        if pd.isna(row["Name"]) or pd.isna(row["Name"]):
+        if pd.isna(row["Name"]) or pd.isna(row["Regex"]):
             continue
 
         name = str(row["Name"])
@@ -180,8 +180,7 @@ def update_cache() -> None:
 
 
 def update_cache_if_required() -> None:
-    now = datetime.now()
-    if _last_update_time is None or now - _last_update_time >= timedelta(
+    if _last_update_time is None or datetime.now() - _last_update_time >= timedelta(
         seconds=settings.CONFIG_CACHE_DURATION
     ):
         update_cache()

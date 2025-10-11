@@ -60,7 +60,7 @@ origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS else [
 app = FastAPI(
     lifespan=lifespan,
     title=settings.APP_TITLE,
-    version=settings.APP_TITLE,
+    version=settings.APP_VERSION,
 )
 
 app.state.limiter = limiter
