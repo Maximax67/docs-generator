@@ -1,4 +1,4 @@
-from typing import Optional, Annotated
+from typing import Annotated
 from datetime import datetime
 from beanie import PydanticObjectId
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -11,16 +11,14 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: Annotated[str, Field(min_length=8, max_length=32)]
     first_name: Annotated[str, Field(min_length=1, max_length=32)]
-    last_name: Optional[
-        Annotated[str, Field(min_length=1, max_length=32)]
-    ] = None
+    last_name: Annotated[str, Field(min_length=1, max_length=32)] | None = None
 
     @field_validator("first_name", "last_name", mode="before")
-    def strip_whitespace(cls: "RegisterRequest", v: Optional[str]) -> Optional[str]:
+    def strip_whitespace(cls: "RegisterRequest", v: str | None) -> str | None:
         return v.strip() if isinstance(v, str) else v
 
     @field_validator("first_name", "last_name")
-    def validate_name(cls: "RegisterRequest", v: Optional[str]) -> Optional[str]:
+    def validate_name(cls: "RegisterRequest", v: str | None) -> str | None:
         if v and not NAME_REGEX.fullmatch(v):
             raise ValueError("Invalid format")
 
@@ -52,7 +50,7 @@ class EmailChangeRequest(BaseModel):
 
 class SessionInfo(BaseModel):
     id: PydanticObjectId
-    name: Optional[str] = None
+    name: str | None = None
     created_at: datetime
     updated_at: datetime
     current: bool

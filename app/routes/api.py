@@ -1,9 +1,8 @@
-from typing import Dict
 from urllib.parse import urljoin
 from fastapi import APIRouter, Request, Response
 
 from app.settings import settings
-from app.models.common_responses import DetailResponse
+from app.schemas.common_responses import DetailResponse
 from app.routes import auth, config, documents, folders, telegram, users, generations
 from app.limiter import limiter
 
@@ -11,9 +10,9 @@ from app.limiter import limiter
 router = APIRouter(prefix="/api")
 
 
-@router.get("", response_model=Dict[str, str], tags=["root"])
+@router.get("", response_model=dict[str, str], tags=["root"])
 @limiter.limit("10/minute")
-def info(request: Request, response: Response) -> Dict[str, str]:
+def info(request: Request, response: Response) -> dict[str, str]:
     return {
         "title": settings.APP_TITLE,
         "version": settings.APP_VERSION,

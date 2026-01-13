@@ -1,23 +1,32 @@
 from io import BytesIO
-from typing import Dict, Optional, Union
+from typing import (
+    Any,
+    Hashable,
+    Iterable,
+    Mapping,
+    TypeVar,
+)
 from datetime import datetime, timedelta
 import re
 import pandas as pd
 
-from app.enums import ConfigSheetName, VariableType
+from app.enums import ConfigSheetName, ValidationType
 from app.services.google_drive import download_file
 from app.settings import settings
-from app.models.validation import ValidationRule
-from app.models.variables import (
+from app.schemas.validation import ValidationRule
+from app.schemas.variables import (
+    LoopVariable,
     PlainVariable,
     MultichoiceVariable,
     ConstantVariable,
+    RowVariable,
+    Variable,
 )
 
-_validation_rules: Dict[str, ValidationRule] = {}
-_variables: Dict[str, Union[PlainVariable, MultichoiceVariable, ConstantVariable]] = {}
-_preview_variables: Dict[str, str] = {}
-_last_update_time: Optional[datetime] = None
+_validation_rules: dict[str, ValidationRule] = {}
+_variables: dict[str, Variable] = {}
+_preview_variables: dict[str, Any] = {}
+_last_update_time: datetime | None = None
 
 
 def _is_valid_regex(pattern: str) -> bool:
@@ -32,7 +41,7 @@ def _parse_bool_emoji(value: str) -> bool:
     return value.strip() == "✔️"
 
 
-def _det_config_dfs() -> Dict[ConfigSheetName, pd.DataFrame]:
+def _det_config_dfs() -> dict[ConfigSheetName, pd.DataFrame]:
     config_content = BytesIO()
 
     download_file(
@@ -43,7 +52,7 @@ def _det_config_dfs() -> Dict[ConfigSheetName, pd.DataFrame]:
 
     config_content.seek(0)
     file = pd.ExcelFile(config_content)
-    config_dfs: Dict[ConfigSheetName, pd.DataFrame] = {}
+    config_dfs: dict[ConfigSheetName, pd.DataFrame] = {}
 
     for sheet_name in ConfigSheetName:
         df = pd.read_excel(file, sheet_name.value, engine="openpyxl")
@@ -52,6 +61,30 @@ def _det_config_dfs() -> Dict[ConfigSheetName, pd.DataFrame]:
     file.close()
 
     return config_dfs
+
+
+T = TypeVar("T", bound=Hashable)
+
+
+def detect_cycles(graph: Mapping[T, Iterable[T]]) -> None:
+    visited = set()
+    stack = set()
+
+    def visit(node: T) -> None:
+        if node in stack:
+            raise Exception(f"Cycle detected in variables: {node}")
+        if node in visited:
+            return
+
+        stack.add(node)
+        for child in graph.get(node, []):
+            visit(child)
+
+        stack.remove(node)
+        visited.add(node)
+
+    for node in graph:
+        visit(node)
 
 
 def update_cache() -> None:
@@ -64,7 +97,7 @@ def update_cache() -> None:
     config_dfs = _det_config_dfs()
 
     validation_df = config_dfs[ConfigSheetName.VALIDATION]
-    rules: Dict[str, ValidationRule] = {}
+    rules: dict[str, ValidationRule] = {}
 
     for _, row in validation_df.iterrows():
         if pd.isna(row["Name"]) or pd.isna(row["Regex"]):
@@ -85,9 +118,7 @@ def update_cache() -> None:
             is_valid=_is_valid_regex(regex),
         )
 
-    variables: Dict[
-        str, Union[PlainVariable, MultichoiceVariable, ConstantVariable]
-    ] = {}
+    variables: dict[str, Variable] = {}
 
     variables_df = config_dfs[ConfigSheetName.VARIABLES]
     for _, row in variables_df.iterrows():
@@ -107,9 +138,9 @@ def update_cache() -> None:
             name=str(row["Name"]),
             example=example if example else None,
             validation_rules=populated_rules,
-            allow_skip=_parse_bool_emoji(str(row["Allow skip"])),
+            nullable=_parse_bool_emoji(str(row["Allow skip"])),
             allow_save=_parse_bool_emoji(str(row["Allow save"])),
-            type=VariableType.PLAIN,
+            type=ValidationType.PLAIN,
         )
 
     multichoice_df = config_dfs[ConfigSheetName.MULTICHOICE_VARIABLES]
@@ -129,10 +160,10 @@ def update_cache() -> None:
             variables[variable] = MultichoiceVariable(
                 variable=variable,
                 name=str(row["Name"]),
-                allow_skip=_parse_bool_emoji(str(row["Allow skip"])),
+                nullable=_parse_bool_emoji(str(row["Allow skip"])),
                 allow_save=_parse_bool_emoji(str(row["Allow save"])),
                 choices=[choice] if choice else [],
-                type=VariableType.MULTICHOICE,
+                type=ValidationType.MULTICHOICE,
             )
         elif current_var and choice:
             mult_var = variables[current_var]
@@ -153,28 +184,71 @@ def update_cache() -> None:
             variable=name,
             name=name,
             value=value,
-            allow_skip=False,
+            nullable=False,
             allow_save=False,
-            type=VariableType.CONSTANT,
+            type=ValidationType.CONSTANT,
         )
+
+    rows_df = config_dfs[ConfigSheetName.ROW]
+    for _, row in rows_df.iterrows():
+        variable_name = row["Variable"]
+        if pd.isna(variable_name):
+            continue
+
+        variable_name = str(variable_name)
+        row_variables = [
+            r.strip() for r in str(row["Variables"]).split(",") if r.strip()
+        ]
+
+        variables[variable_name] = RowVariable(
+            variable=variable_name,
+            name=str(row["Name"]),
+            variable_names=row_variables,
+            variables=[],
+            nullable=_parse_bool_emoji(str(row["Allow skip"])),
+            allow_save=False,
+            type=ValidationType.ROW,
+        )
+
+    loops_df = config_dfs[ConfigSheetName.LOOPS]
+    for _, row in loops_df.iterrows():
+        variable_name = row["Variable"]
+        if pd.isna(variable_name):
+            continue
+
+        variable_name = str(variable_name)
+        loop_variables = [
+            r.strip() for r in str(row["Variables"]).split(",") if r.strip()
+        ]
+
+        variables[variable_name] = LoopVariable(
+            variable=variable_name,
+            name=str(row["Name"]),
+            variable_names=loop_variables,
+            variables=[],
+            nullable=_parse_bool_emoji(str(row["Allow skip"])),
+            allow_save=False,
+            type=ValidationType.LOOP,
+        )
+
+    graph: dict[str, list[str]] = {}
+    for name, var in variables.items():
+        if var.type in (ValidationType.ROW, ValidationType.LOOP):
+            graph[name] = list(var.variable_names)  # type: ignore
+        else:
+            graph[name] = []
+
+    detect_cycles(graph)
+
+    for var in variables.values():
+        if var.type in (ValidationType.ROW, ValidationType.LOOP):
+            var.variables = [variables[name] for name in var.variable_names]  # type: ignore
 
     _validation_rules = rules
     _variables = variables
 
-    _preview_variables = {}
     for key, var in variables.items():
-        value = settings.DEFAULT_VARIABLE_VALUE
-
-        if var.type == VariableType.CONSTANT:
-            value = var.value
-        elif var.type == VariableType.PLAIN:
-            if var.example:
-                value = var.example
-        elif var.type == VariableType.MULTICHOICE:
-            if var.choices:
-                value = var.choices[0]
-
-        _preview_variables[key] = value
+        _preview_variables[key] = var.get_preivew()
 
     _last_update_time = now
 
@@ -186,21 +260,19 @@ def update_cache_if_required() -> None:
         update_cache()
 
 
-def get_validation_rules_dict() -> Dict[str, ValidationRule]:
+def get_validation_rules_dict() -> dict[str, ValidationRule]:
     update_cache_if_required()
 
     return _validation_rules
 
 
-def get_variables_dict() -> (
-    Dict[str, Union[PlainVariable, MultichoiceVariable, ConstantVariable]]
-):
+def get_variables_dict() -> dict[str, Variable]:
     update_cache_if_required()
 
     return _variables
 
 
-def get_preview_variables() -> Dict[str, str]:
+def get_preview_variables() -> dict[str, Any]:
     update_cache_if_required()
 
     return _preview_variables

@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict
+from typing import Any
 
 import jinja2
 
@@ -8,7 +8,7 @@ def from_json(value: Any) -> Any:
     return json.loads(value)
 
 
-def dict_get(d: Dict[Any, Any], key: Any, default: Any = "") -> Any:
+def dict_get(d: dict[Any, Any], key: Any, default: Any = "") -> Any:
     return d.get(key, default)
 
 

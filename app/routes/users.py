@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pymongo import ReturnDocument
@@ -7,14 +7,14 @@ from beanie import PydanticObjectId
 
 from app.enums import UserRole
 from app.limiter import limiter
-from app.models.common_responses import DetailResponse
-from app.models.users import AllUsersResponse, UserUpdateRequest
+from app.schemas.common_responses import DetailResponse
+from app.schemas.users import AllUsersResponse, UserUpdateRequest
 from app.services.auth import clear_auth_cookies
 from app.services.bloom_filter import bloom_filter
 from app.services.variables import validate_user_variable, validate_user_variables
 from app.settings import settings
-from app.models.auth import AuthorizedUser
-from app.models.database import Result, Session, User
+from app.schemas.auth import AuthorizedUser
+from app.db.database import Result, Session, User
 from app.dependencies import (
     authorize_user_or_admin,
     authorize_user_or_god,
@@ -31,7 +31,7 @@ from app.utils import (
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-common_responses: Dict[Union[int, str], Dict[str, Any]] = {
+common_responses: dict[int | str, dict[str, Any]] = {
     404: {
         "description": "User not found",
         "content": {"application/json": {"example": {"detail": "User not found"}}},
@@ -146,9 +146,7 @@ async def update_user(
     if user_update.saved_variables:
         validate_saved_variables_count(len(user_update.saved_variables))
 
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
+    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"_id": user_id},
         {"$set": user_update.model_dump(exclude_unset=True)},
         return_document=ReturnDocument.AFTER,
@@ -178,11 +176,15 @@ async def delete_user(
     if authorized_user.user_id != user_id and authorized_user.role != UserRole.GOD:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    async for session in Session.find(Session.user.id == user_id):
+    async for session in Session.find(
+        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+    ):
         bloom_filter.add(session.access_jti)
 
-    await Session.find(Session.user.id == user_id).delete()
-    await Result.find(Result.user.id == user_id).delete()
+    await Session.find(
+        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+    ).delete()
+    await Result.find(Result.user.id == user_id).delete()  # pyright: ignore
     await user.delete()
 
     if authorized_user.user_id == user_id:
@@ -212,7 +214,7 @@ async def delete_user_generated_documents(
     ) and authorized_user.role != UserRole.GOD:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    result = await Result.find(Result.user.id == user.id).delete()
+    result = await Result.find(Result.user.id == user.id).delete()  # pyright: ignore
     if not result:
         raise HTTPException(status_code=404, detail="Generations not found")
 
@@ -221,15 +223,15 @@ async def delete_user_generated_documents(
 
 @router.get(
     "/{user_id}/saved_variables",
-    response_model=Dict[str, str],
+    response_model=dict[str, Any],
     responses=common_responses,
     dependencies=[Depends(authorize_user_or_admin)],
 )
 @limiter.limit("5/minute")
 async def get_saved_variables(
     user_id: PydanticObjectId, request: Request, response: Response
-) -> Dict[str, str]:
-    user: Optional[User] = await User.find_one(User.id == user_id)
+) -> dict[str, Any]:
+    user: User | None = await User.find_one(User.id == user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -244,11 +246,11 @@ async def get_saved_variables(
 @limiter.limit("5/minute")
 async def update_saved_variables(
     user_id: PydanticObjectId,
-    saved_variables: Dict[str, str],
+    saved_variables: dict[str, str],
     request: Request,
     response: Response,
     authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
-) -> Union[User, JSONResponse]:
+) -> User | JSONResponse:
     if (
         not authorized_user.is_email_verified
         and not authorized_user.role == UserRole.ADMIN
@@ -268,9 +270,7 @@ async def update_saved_variables(
             status_code=422, content={"detail": "Validation failed", "errors": errors}
         )
 
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
+    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"_id": user_id},
         {"$set": {"saved_variables": saved_variables}},
         return_document=ReturnDocument.AFTER,
@@ -293,9 +293,7 @@ async def delete_saved_variables(
     request: Request,
     response: Response,
 ) -> User:
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
+    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"_id": user_id},
         {"$set": {"saved_variables": {}}},
         return_document=ReturnDocument.AFTER,
@@ -320,9 +318,7 @@ async def delete_saved_variable(
     authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
 ) -> User:
     validate_variable_name(variable)
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
+    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"_id": user_id},
         {"$unset": {f"saved_variables.{variable}": ""}},
         return_document=ReturnDocument.AFTER,
@@ -364,9 +360,7 @@ async def update_saved_variable(
             detail=error,
         )
 
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
+    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {
             "_id": user_id,
             "$expr": {
@@ -399,7 +393,7 @@ async def update_saved_variable(
     if updated_user:
         return updated_user
 
-    existing_user: Optional[User] = await User.get_pymongo_collection().find_one(
+    existing_user: User | None = await User.get_pymongo_collection().find_one(
         {"_id": user_id},
         {"_id": 1},
     )

@@ -1,13 +1,12 @@
 from datetime import timedelta
 from secrets import token_urlsafe
-from typing import List, Optional
 from urllib.parse import urljoin
 
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.enums import TokenType
-from app.models.auth import (
+from app.schemas.auth import (
     LoginRequest,
     PasswordForgotRequest,
     PasswordChangeRequest,
@@ -16,8 +15,8 @@ from app.models.auth import (
     EmailChangeRequest,
     SessionInfo,
 )
-from app.models.common_responses import DetailResponse
-from app.models.database import User, Session
+from app.schemas.common_responses import DetailResponse
+from app.db.database import User, Session
 from app.services.auth import (
     clear_auth_cookies,
     create_jwt_token,
@@ -180,7 +179,7 @@ async def logout_all(
 
 @router.get(
     "/sessions",
-    response_model=List[SessionInfo],
+    response_model=list[SessionInfo],
     responses={
         401: {
             "description": "Not authenticated",
@@ -193,8 +192,8 @@ async def logout_all(
 @limiter.limit("5/minute")
 async def list_sessions(
     request: Request, response: Response, current_user: User = Depends(get_current_user)
-) -> List[SessionInfo]:
-    current_jti: Optional[str] = None
+) -> list[SessionInfo]:
+    current_jti: str | None = None
     access_cookie = request.cookies.get(settings.ACCESS_COOKIE_NAME)
     if access_cookie:
         try:
@@ -203,8 +202,11 @@ async def list_sessions(
         except Exception:
             current_jti = None
 
-    sessions = await Session.find(Session.user.id == current_user.id).to_list()
-    result: List[SessionInfo] = []
+    sessions = await Session.find(
+        Session.user.id  # pyright: ignore[reportAttributeAccessIssue]
+        == current_user.id
+    ).to_list()
+    result: list[SessionInfo] = []
     for s in sessions:
         result.append(
             SessionInfo(
@@ -245,7 +247,10 @@ async def revoke_session(
     current_user: User = Depends(get_current_user),
 ) -> DetailResponse:
     s = await Session.find_one(Session.id == session_id, fetch_links=True)
-    if not s or s.user.id != current_user.id:
+    if (
+        not s
+        or s.user.id != current_user.id  # pyright: ignore[reportAttributeAccessIssue]
+    ):
         raise HTTPException(status_code=404, detail="Session not found")
 
     access_cookie = request.cookies.get(settings.ACCESS_COOKIE_NAME)
@@ -395,7 +400,7 @@ async def email_send_confirmation(
 async def verify_email(
     request: Request,
     response: Response,
-    token: Optional[str] = None,
+    token: str | None = None,
 ) -> DetailResponse:
     if not token:
         raise HTTPException(status_code=400, detail="Missing token")
@@ -502,7 +507,13 @@ async def password_forgot(
     )
     url = urljoin(str(settings.FRONTEND_URL), f"/reset-password?token={token}")
 
-    await send_email(user.email, "Password reset", "reset", user.first_name, url)
+    await send_email(
+        user.email,  # pyright: ignore
+        "Password reset",
+        "reset",
+        user.first_name,
+        url,
+    )
 
     return DetailResponse(detail="If the email exists, a reset link has been sent")
 

@@ -1,14 +1,19 @@
 import os
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, cast
 from aiogram.types import Message, CallbackQuery, FSInputFile, InaccessibleMessage
 from aiogram.fsm.context import FSMContext
+from beanie import Link
 
-from app.settings import settings
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
-from app.enums import VariableType
-from app.models.database import Result, PinnedFolder, User
-from app.models.google import DriveFile, DriveFolder
-from app.models.variables import MultichoiceVariable, PlainVariable
+from app.enums import DocumentResponseFormat, ValidationType
+from app.db.database import Result, PinnedFolder, User
+from app.schemas.google import DriveFile, DriveFolder
+from app.schemas.variables import (
+    LoopVariable,
+    MultichoiceVariable,
+    PlainVariable,
+    RowVariable,
+)
 from app.services.documents import (
     generate_document,
     generate_preview,
@@ -58,7 +63,7 @@ async def initial_generation_handler(
     folders = get_accessible_folders()
     pinned_folder_objs = await PinnedFolder.find_all().to_list()
     pinned_ids = {f.folder_id for f in pinned_folder_objs}
-    pinned_folders: List[DriveFolder] = []
+    pinned_folders: list[DriveFolder] = []
 
     for f in folders:
         if f["id"] in pinned_ids:
@@ -112,8 +117,8 @@ async def selection_menu(
     pinned_folder_objs = await PinnedFolder.find_all().to_list()
     pinned_ids = {str(f.folder_id) for f in pinned_folder_objs}
 
-    folders: List[DriveFolder] = []
-    documents: List[DriveFile] = []
+    folders: list[DriveFolder] = []
+    documents: list[DriveFile] = []
 
     for item in contents:
         mime_type = item["mimeType"]
@@ -125,7 +130,7 @@ async def selection_menu(
         elif mime_type in DOC_COMPATIBLE_MIME_TYPES:
             documents.append(format_drive_file_metadata(item))
 
-    selection_history: List[Tuple[str, str]] = await state.get_value(
+    selection_history: list[tuple[str, str]] = await state.get_value(
         "selection_history", []
     )
 
@@ -172,7 +177,7 @@ async def selecting_menu_back_handler(
     if callback.message is None or isinstance(callback.message, InaccessibleMessage):
         raise Exception("Message is inaccessible")
 
-    selection_history: Optional[List[Tuple[str, str]]] = await state.get_value(
+    selection_history: list[tuple[str, str]] | None = await state.get_value(
         "selection_history"
     )
 
@@ -232,12 +237,12 @@ async def show_selected_document(
     valid_variables, unknown_variables = validate_document_variables(template_variables)
     is_valid = len(unknown_variables) == 0
 
-    required_variables: List[Union[PlainVariable, MultichoiceVariable]] = [
-        var for var in valid_variables if var.type != VariableType.CONSTANT
-    ]
+    required_variables: list[
+        PlainVariable | MultichoiceVariable | RowVariable | LoopVariable
+    ] = [var for var in valid_variables if var.type != ValidationType.CONSTANT]
     required_variables.sort(key=lambda v: v.name)
 
-    required_variables_names: List[Tuple[str, str]] = [
+    required_variables_names: list[tuple[str, str]] = [
         (var.variable, var.name) for var in required_variables
     ]
 
@@ -259,16 +264,9 @@ async def show_selected_document(
         os.remove(pdf_file_path)
 
     if not required_variables_names:
-        context: Dict[str, str] = {}
+        context: dict[str, Any] = {}
         for var in valid_variables:
-            if var.type == VariableType.MULTICHOICE:
-                value = var.choices[0]
-            elif var.type == VariableType.PLAIN:
-                value = var.example or settings.DEFAULT_VARIABLE_VALUE
-            else:
-                value = var.value
-
-            context[var.variable] = value
+            context[var.variable] = var.get_preivew()
 
         await state.update_data(
             selected_document=document_id,
@@ -281,7 +279,7 @@ async def show_selected_document(
 
     saved_variables = user.saved_variables
 
-    numbered_lines: List[str] = []
+    numbered_lines: list[str] = []
     generate_now_available = True
 
     for i, (name, readable_name) in enumerate(required_variables_names, 1):
@@ -328,11 +326,11 @@ async def generate_now_handler(callback: CallbackQuery, state: FSMContext) -> No
     if callback.message is None or isinstance(callback.message, InaccessibleMessage):
         raise Exception("Message is inaccessible")
 
-    filled_data: List[Optional[str]] = []
-    required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
+    filled_data: list[str | None] = []
+    required_variables: list[PlainVariable | MultichoiceVariable] = (
         await state.get_value("required_variables", [])
     )
-    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
+    saved_variables: dict[str, str] = await state.get_value("saved_variables", {})
 
     for var in required_variables:
         filled_data.append(saved_variables[var.variable])
@@ -344,11 +342,11 @@ async def generate_now_handler(callback: CallbackQuery, state: FSMContext) -> No
 async def ask_next_variable(message: Message, state: FSMContext) -> None:
     await delete_last_message(message, state)
 
-    required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
+    required_variables: list[PlainVariable | MultichoiceVariable] = (
         await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data", [])
-    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
+    filled_data: list[str] = await state.get_value("filled_data", [])
+    saved_variables: dict[str, str] = await state.get_value("saved_variables", {})
 
     position_to_fill = len(filled_data)
     if position_to_fill >= len(required_variables):
@@ -357,11 +355,11 @@ async def ask_next_variable(message: Message, state: FSMContext) -> None:
 
     variable = required_variables[position_to_fill]
     saved_input = saved_variables.get(variable.variable)
-    is_skippable = variable.allow_skip
+    is_skippable = variable.nullable
 
     cur_state = await state.get_state()
 
-    if variable.type == VariableType.MULTICHOICE:
+    if variable.type == ValidationType.MULTICHOICE:
         if cur_state != GenerationStates.filling_multichoise_variable:
             await state.set_state(GenerationStates.filling_multichoise_variable)
 
@@ -398,10 +396,10 @@ async def ask_next_variable_callback_handler(
 async def answer_multichoice_handler(
     callback: CallbackQuery, callback_data: GenerationCallback, state: FSMContext
 ) -> None:
-    required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
+    required_variables: list[PlainVariable | MultichoiceVariable] = (
         await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data", [])
+    filled_data: list[str] = await state.get_value("filled_data", [])
 
     variable = required_variables[len(filled_data)]
     if not isinstance(variable, MultichoiceVariable):
@@ -419,17 +417,17 @@ async def answer_multichoice_handler(
 async def use_offered_text_input_handler(
     callback: CallbackQuery, callback_data: GenerationCallback, state: FSMContext
 ) -> None:
-    required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
+    required_variables: list[PlainVariable | MultichoiceVariable] = (
         await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data", [])
+    filled_data: list[str] = await state.get_value("filled_data", [])
 
     variable = required_variables[len(filled_data)]
 
     if callback_data.q == "skip":
         filled = ""
     else:
-        saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
+        saved_variables: dict[str, str] = await state.get_value("saved_variables", {})
         filled = saved_variables[variable.variable]
 
     filled_data.append(filled)
@@ -439,10 +437,10 @@ async def use_offered_text_input_handler(
 
 
 async def answer_input_variable_handler(message: Message, state: FSMContext) -> None:
-    required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
+    required_variables: list[PlainVariable | MultichoiceVariable] = (
         await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data", [])
+    filled_data: list[str] = await state.get_value("filled_data", [])
 
     variable = required_variables[len(filled_data)]
     input_text = message.text or ""
@@ -453,10 +451,10 @@ async def answer_input_variable_handler(message: Message, state: FSMContext) -> 
         error = "Ти ввів занадто довгий текст"
 
     if error:
-        if error.startswith("Invalid value for rule '"):
+        if isinstance(error, str) and error.startswith("Invalid value for rule '"):
             await message.answer("Не валідне значення для цього поля! Повторіть ввід")
         else:
-            await message.answer(error)
+            await message.answer(str(error))
     else:
         filled_data.append(input_text)
         await state.update_data(filled_data=filled_data)
@@ -467,7 +465,7 @@ async def answer_input_variable_handler(message: Message, state: FSMContext) -> 
 async def return_to_previous_input_handler(
     callback: CallbackQuery, state: FSMContext
 ) -> None:
-    filled_data: List[str] = await state.get_value("filled_data", [])
+    filled_data: list[str] = await state.get_value("filled_data", [])
 
     if filled_data and len(filled_data) >= 1:
         filled_data.pop()
@@ -501,8 +499,8 @@ async def generate_document_result(
         raise ValueError("User not found")
 
     if already_generated:
-        context = await state.get_value("context")
-        template_name = await state.get_value("template_name")
+        context: dict[str, Any] | None = await state.get_value("context")
+        template_name: str | None = await state.get_value("template_name")
     else:
         await delete_last_message(message, state)
 
@@ -512,11 +510,11 @@ async def generate_document_result(
             last_message_id=processing_message.message_id,
         )
 
-        required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
+        required_variables: list[PlainVariable | MultichoiceVariable] = (
             await state.get_value("required_variables", [])
         )
 
-        filled_data: List[str] = await state.get_value("filled_data", [])
+        filled_data: list[str] = await state.get_value("filled_data", [])
 
         file_metadata = get_drive_item_metadata(document_id)
         file = format_drive_file_metadata(file_metadata)
@@ -524,9 +522,9 @@ async def generate_document_result(
         if file.mime_type not in DOC_COMPATIBLE_MIME_TYPES:
             raise ValueError("Invalid document mime type")
 
-        saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
+        saved_variables: dict[str, str] = await state.get_value("saved_variables", {})
 
-        variables: Dict[str, str] = {}
+        variables: dict[str, str] = {}
         for i, variable in enumerate(required_variables):
             value = filled_data[i]
             variables[variable.variable] = value
@@ -562,32 +560,35 @@ async def generate_document_result(
         finally:
             os.remove(pdf_file_path)
 
-    await Result(
-        user=user,
-        template_id=document_id,
-        template_name=template_name,
-        variables=context,
-    ).insert()
+    if template_name and context:
+        await Result(
+            user=cast(Link[User], user),
+            template_id=document_id,
+            template_name=template_name,
+            variables=context,
+            format=DocumentResponseFormat.PDF,
+        ).insert()
 
     await message.answer(
         "Документ успішно згенеровано. "
         "Якщо сподобався бот, або маєш ідеї для покращення, скористайся функцією зворотнього зв'язку!",
     )
 
-    if save_data_option == 0:
+    if save_data_option == 0 or not context:
         await state.clear()
+        return
+
+    if save_data_option == 1:
+        suggest_text = "Бажаєш зберегти введені дані для більш швидкої генерації документів в майбутньому?"
     else:
-        if save_data_option == 1:
-            suggest_text = "Бажаєш зберегти введені дані для більш швидкої генерації документів в майбутньому?"
-        else:
-            suggest_text = "Бажаєш оновити збережені дані?"
+        suggest_text = "Бажаєш оновити збережені дані?"
 
-        answer = await message.answer(
-            suggest_text,
-            reply_markup=suggest_save_data(),
-        )
+    answer = await message.answer(
+        suggest_text,
+        reply_markup=suggest_save_data(),
+    )
 
-        await state.update_data(last_message_id=answer.message_id)
+    await state.update_data(last_message_id=answer.message_id)
 
 
 async def save_variables_handler(callback: CallbackQuery, state: FSMContext) -> None:
@@ -596,10 +597,10 @@ async def save_variables_handler(callback: CallbackQuery, state: FSMContext) -> 
 
     await delete_last_message(callback.message, state)
 
-    required_variables: List[Union[PlainVariable, MultichoiceVariable]] = (
+    required_variables: list[PlainVariable | MultichoiceVariable] = (
         await state.get_value("required_variables", [])
     )
-    filled_data: List[str] = await state.get_value("filled_data", [])
+    filled_data: list[str] = await state.get_value("filled_data", [])
 
     user = await User.find_one(User.telegram_id == callback.from_user.id)
     if not user:

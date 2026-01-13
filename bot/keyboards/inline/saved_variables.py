@@ -1,4 +1,3 @@
-from typing import List, Tuple
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -7,7 +6,7 @@ from bot.keyboards.callback import SavedDataCallback, MainCallback
 
 
 def saved_variables_keyboard(
-    variables: List[Tuple[str, str]], pos: int
+    variables: list[tuple[str, str]], pos: int
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     total = len(variables)

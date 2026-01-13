@@ -1,8 +1,7 @@
 import re
-from typing import List, Optional
 
 from app.settings import settings
-from app.models.validation import ValidationRule
+from app.schemas.validation import ValidationRule
 from app.services.config import get_validation_rules_dict
 
 
@@ -11,15 +10,15 @@ def is_rule_name_valid(variable: str) -> bool:
     return bool(re.fullmatch(pattern, variable))
 
 
-def get_validation_rules() -> List[ValidationRule]:
+def get_validation_rules() -> list[ValidationRule]:
     return list(get_validation_rules_dict().values())
 
 
-def get_validation_rule(name: str) -> Optional[ValidationRule]:
+def get_validation_rule(name: str) -> ValidationRule | None:
     return get_validation_rules_dict().get(name)
 
 
-def validate_value(rule: ValidationRule, value: str) -> Optional[str]:
+def validate_value(rule: ValidationRule, value: str) -> str | None:
     if not rule.is_valid:
         return "Invalid regex pattern"
 

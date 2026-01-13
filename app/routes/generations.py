@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, Optional, Union
+from typing import Any, cast
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -9,20 +9,20 @@ from fastapi import (
     Request,
     Response,
 )
-from beanie import PydanticObjectId, SortDirection
+from beanie import Link, PydanticObjectId, SortDirection
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.enums import UserRole
+from app.enums import DocumentResponseFormat, UserRole
 from app.limiter import limiter
-from app.models.common_responses import DetailResponse, PaginationMeta
+from app.schemas.common_responses import DetailResponse, PaginationMeta
 from app.services.google_drive import (
     format_drive_file_metadata,
     get_drive_item_metadata,
 )
 from app.services.documents import generate_document
-from app.models.auth import AuthorizedUser
-from app.models.database import Result
-from app.models.generations import PaginatedResults
+from app.schemas.auth import AuthorizedUser
+from app.db.database import Result, User
+from app.schemas.generations import PaginatedResults
 from app.dependencies import get_authorized_user, authorize_user_or_admin_query
 from app.utils import validate_document_generation_request, validate_document_mime_type
 from app.exceptions import ValidationErrorsException
@@ -30,7 +30,7 @@ from app.exceptions import ValidationErrorsException
 
 router = APIRouter(prefix="/generations", tags=["generations"])
 
-common_responses: Dict[Union[int, str], Dict[str, Any]] = {
+common_responses: dict[int | str, dict[str, Any]] = {
     404: {
         "description": "Generated document not found",
         "content": {
@@ -57,13 +57,13 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
 async def get_results_documents(
     request: Request,
     response: Response,
-    user_id: Optional[str] = Query(None),
-    template_id: Optional[str] = Query(None),
+    user_id: str | None = Query(None),
+    template_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     authorized_user: AuthorizedUser = Depends(authorize_user_or_admin_query),
 ) -> PaginatedResults:
-    query: Dict[str, Union[str, PydanticObjectId, None]] = {}
+    query: dict[str, str | PydanticObjectId | None] = {}
 
     if user_id is None:
         if authorized_user.role == UserRole.USER:
@@ -141,7 +141,11 @@ async def get_result_document_by_id(
     user = result.user
 
     if user:
-        if authorized_user.role == UserRole.USER and authorized_user.user_id != user.id:
+        if (
+            authorized_user.role == UserRole.USER
+            and authorized_user.user_id
+            != user.id  # pyright: ignore[reportAttributeAccessIssue]
+        ):
             raise HTTPException(status_code=403, detail="Forbidden")
 
     elif authorized_user.role == UserRole.USER:
@@ -162,8 +166,9 @@ async def regenerate_result_by_id(
     request: Request,
     response: Response,
     old_constants: bool = Query(False),
+    format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
     authorized_user: AuthorizedUser = Depends(get_authorized_user),
-) -> Union[FileResponse, JSONResponse]:
+) -> FileResponse | JSONResponse:
     result = await Result.find_one(Result.id == result_id, fetch_links=True)
     if not result:
         raise HTTPException(status_code=404, detail="Generated document not found")
@@ -171,7 +176,11 @@ async def regenerate_result_by_id(
     user = result.user
 
     if user:
-        if authorized_user.role == UserRole.USER and authorized_user.user_id != user.id:
+        if (
+            authorized_user.role == UserRole.USER
+            and authorized_user.user_id
+            != user.id  # pyright: ignore[reportAttributeAccessIssue]
+        ):
             raise HTTPException(status_code=403, detail="Forbidden")
 
     elif authorized_user.role == UserRole.USER:
@@ -190,13 +199,13 @@ async def regenerate_result_by_id(
     validate_document_mime_type(file.mime_type)
 
     try:
-        pdf_file_path, context = generate_document(
-            file, result.variables, not old_constants
+        file_path, context = generate_document(
+            file, result.variables, not old_constants, format
         )
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
-    background_tasks.add_task(os.remove, pdf_file_path)
+    background_tasks.add_task(os.remove, file_path)
 
     if file.mime_type == "application/vnd.google-apps.document":
         filename = file.name
@@ -207,11 +216,12 @@ async def regenerate_result_by_id(
         template_id=result.template_id,
         template_name=filename,
         variables=context,
-        user=authorized_user.user_id,
+        user=cast(Link[User], authorized_user.user_id),
+        format=format,
     ).insert()
 
     return FileResponse(
-        path=pdf_file_path,
+        path=file_path,
         filename=f"{result.template_id}.pdf",
         media_type="application/pdf",
     )
@@ -233,7 +243,7 @@ async def delete_result_document_by_id(
     if not result:
         raise HTTPException(status_code=404, detail="Generated document not found")
 
-    user = result.user
+    user = cast(User | None, result.user)
 
     if user:
         if (

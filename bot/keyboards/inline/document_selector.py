@@ -1,15 +1,14 @@
 import os
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from typing import List
 
-from app.models.google import DriveFile, DriveFolder
+from app.schemas.google import DriveFile, DriveFolder
 from bot.keyboards.callback import GenerationCallback, MainCallback
 
 
 def document_selector_keyboard(
-    folders: List[DriveFolder],
-    files: List[DriveFile],
+    folders: list[DriveFolder],
+    files: list[DriveFile],
     previous_available: bool,
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()

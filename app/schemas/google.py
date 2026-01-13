@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import List, Optional
 from pydantic import BaseModel
 
 
@@ -8,12 +7,12 @@ class DriveItem(BaseModel):
     name: str
     modified_time: datetime
     created_time: datetime
-    web_view_link: Optional[str] = None
+    web_view_link: str | None = None
 
 
 class DriveFile(DriveItem):
     mime_type: str
-    size: Optional[int]
+    size: int | None
 
 
 class DriveFolder(DriveItem):
@@ -21,14 +20,14 @@ class DriveFolder(DriveItem):
 
 
 class FolderContents(BaseModel):
-    folders: List[DriveFolder]
-    documents: List[DriveFile]
+    folders: list[DriveFolder]
+    documents: list[DriveFile]
     current_folder: DriveFolder
 
 
 class FolderTree(BaseModel):
-    folders: List["FolderTree"]
-    documents: List[DriveFile]
+    folders: list["FolderTree"]
+    documents: list[DriveFile]
     current_folder: DriveFolder
 
 
@@ -36,12 +35,12 @@ FolderTree.model_rebuild()
 
 
 class FolderTreeResponse(BaseModel):
-    tree: List[FolderTree]
+    tree: list[FolderTree]
 
 
 class DriveFileListResponse(BaseModel):
-    files: List[DriveFile]
+    files: list[DriveFile]
 
 
 class FolderListResponse(BaseModel):
-    folders: List[DriveFolder]
+    folders: list[DriveFolder]

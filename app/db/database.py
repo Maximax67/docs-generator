@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Annotated, Dict, Optional
+from typing import Annotated, Any
 from beanie import (
     Document,
     Indexed,
@@ -11,7 +11,8 @@ from beanie import (
     before_event,
 )
 from pydantic import Field
-from app.enums import UserRole
+from pymongo import IndexModel
+from app.enums import DocumentResponseFormat, UserRole
 
 
 class Feedback(Document):
@@ -53,17 +54,17 @@ class PinnedFolder(BaseDocument):
 
 
 class User(BaseDocument):
-    telegram_id: Annotated[Optional[int], Indexed(unique=True, sparse=True)] = None
-    email: Annotated[Optional[str], Indexed(unique=True, sparse=True)] = None
+    telegram_id: Annotated[int | None, Indexed(unique=True, sparse=True)] = None
+    email: Annotated[str | None, Indexed(unique=True, sparse=True)] = None
 
     first_name: str
-    last_name: Optional[str] = None
+    last_name: str | None = None
 
-    telegram_username: Optional[str] = None
-    saved_variables: Dict[str, str] = {}
+    telegram_username: str | None = None
+    saved_variables: dict[str, Any] = {}
     is_banned: bool = False
 
-    password_hash: Optional[str] = Field(default=None, exclude=True)
+    password_hash: str | None = Field(default=None, exclude=True)
     email_verified: bool = False
     role: UserRole = UserRole.USER
 
@@ -73,11 +74,47 @@ class User(BaseDocument):
         keep_nulls = False
 
 
+class Variable(BaseDocument):
+    variable: str
+    allow_save: bool = Field(default=False)
+    scope: str | None = None
+    created_by: Link[User] | None = None
+    updated_by: Link[User] | None = None
+    scheme: dict[str, Any] | None = None
+
+    class Settings:
+        name = "variables"
+        use_state_management = True
+        indexes = [
+            IndexModel(
+                [
+                    ("variable", 1),
+                    ("scope", 1),
+                ],
+                unique=True,
+            ),
+        ]
+
+
+class SavedVariable(BaseDocument):
+    user: Annotated[Link[User], Indexed()]
+    variable: Link[Variable]
+    value: Any
+
+    class Settings:
+        name = "saved_variables"
+        use_state_management = True
+        indexes = [
+            [("user", 1), ("variable", 1)],
+        ]
+
+
 class Result(BaseDocument):
-    user: Optional[Link[User]] = None
+    user: Annotated[Link[User] | None, Indexed(sparse=True)] = None
     template_id: str
     template_name: str
-    variables: Dict[str, str] = {}
+    variables: dict[str, Any] = {}
+    format: DocumentResponseFormat = DocumentResponseFormat.PDF
 
     class Settings:
         name = "results"
@@ -86,15 +123,12 @@ class Result(BaseDocument):
 
 
 class Session(BaseDocument):
-    user: Link[User]
+    user: Annotated[Link[User], Indexed()]
     refresh_jti: Annotated[str, Indexed(unique=True)]
     access_jti: str
-    name: Optional[str] = None
+    name: str | None = None
 
     class Settings:
         name = "sessions"
         use_state_management = True
         keep_nulls = False
-        indexes = [
-            [("user", 1)],
-        ]

@@ -18,3 +18,4 @@ email-validator
 httpx
 user_agents
 regex
+jsonschema[format-nongpl]

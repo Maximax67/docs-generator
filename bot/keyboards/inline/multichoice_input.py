@@ -1,4 +1,3 @@
-from typing import List, Optional
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -8,7 +7,7 @@ from bot.keyboards.callback import GenerationCallback, MainCallback
 
 
 def multichoice_input(
-    choices: List[str], saved_input: Optional[str], is_skippable: bool
+    choices: list[str], saved_input: str | None, is_skippable: bool
 ) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
 

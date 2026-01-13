@@ -1,4 +1,4 @@
-from typing import Any, Dict, Union
+from typing import Any, cast
 from io import BytesIO
 import os
 from fastapi import (
@@ -6,15 +6,17 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     HTTPException,
+    Header,
+    Query,
     Request,
     Response,
 )
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app.dependencies import authorize_user_or_admin
-from app.models.database import Result, User
-from app.models.google import DriveFile, DriveFileListResponse
-from app.models.documents import (
+from app.db.database import Result, User
+from app.schemas.google import DriveFile, DriveFileListResponse
+from app.schemas.documents import (
     DocumentDetails,
     DocumentVariables,
     GenerateDocumentRequest,
@@ -34,15 +36,17 @@ from app.services.google_drive import (
 )
 from app.exceptions import ValidationErrorsException
 from app.limiter import limiter
-from beanie import PydanticObjectId
+from beanie import Link, PydanticObjectId
 from app.utils import (
+    resolve_format,
     validate_document_generation_request,
     validate_document_mime_type,
 )
+from app.enums import FORMAT_TO_MIME, DocumentResponseFormat
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-common_responses: Dict[Union[int, str], Dict[str, Any]] = {
+common_responses: dict[int | str, dict[str, Any]] = {
     404: {
         "description": "Document not found or access denied",
         "content": {
@@ -61,7 +65,7 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
     },
 }
 
-common_responses_with_validation: Dict[Union[int, str], Dict[str, Any]] = {
+common_responses_with_validation: dict[int | str, dict[str, Any]] = {
     **common_responses,
     400: {
         "description": "Validation error",
@@ -69,12 +73,10 @@ common_responses_with_validation: Dict[Union[int, str], Dict[str, Any]] = {
             "application/json": {
                 "example": {
                     "errors": {
-                        "random_variable": "Variable is not used in the document",
                         "pi": "Cannot set constant variable",
                         "surname": "Missing required variable",
                         "gender": "Value must be one of the allowed choices",
                         "phone": "Regex evaluation failed",
-                        "asdf": "Unknown variable",
                     },
                     "is_valid": False,
                 }
@@ -213,7 +215,11 @@ async def get_raw_document(
         **common_responses,
         200: {
             "description": "Returns preview PDF file",
-            "content": {"application/pdf": {}, "application/json": None},
+            "content": {
+                "application/pdf": {},
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "application/json": None,
+            },
         },
     },
 )
@@ -223,7 +229,11 @@ async def preview_document(
     background_tasks: BackgroundTasks,
     request: Request,
     response: Response,
+    format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
+    accept: str | None = Header(None),
 ) -> FileResponse:
+    format = resolve_format(accept, format)
+
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -234,13 +244,13 @@ async def preview_document(
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
-    pdf_file_path, _ = generate_preview(file)
-    background_tasks.add_task(os.remove, pdf_file_path)
+    file_path, _ = generate_preview(file, format)
+    background_tasks.add_task(os.remove, file_path)
 
     return FileResponse(
-        path=pdf_file_path,
-        filename=f"{document_id}.pdf",
-        media_type="application/pdf",
+        path=file_path,
+        filename=f"{document_id}.{format.value}",
+        media_type=FORMAT_TO_MIME[format],
     )
 
 
@@ -268,7 +278,7 @@ async def validate_provided_variables_for_document(
     body: GenerateDocumentRequest,
     request: Request,
     response: Response,
-) -> Union[ValidationErrorsResponse, JSONResponse]:
+) -> ValidationErrorsResponse | JSONResponse:
     validate_document_generation_request(body.variables)
 
     try:
@@ -297,8 +307,12 @@ async def validate_provided_variables_for_document(
     responses={
         **common_responses_with_validation,
         200: {
-            "description": "Returns generated PDF file",
-            "content": {"application/pdf": {}, "application/json": None},
+            "description": "Returns generated file",
+            "content": {
+                "application/pdf": {},
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "application/json": None,
+            },
         },
     },
 )
@@ -309,7 +323,10 @@ async def generate_document_with_variables(
     background_tasks: BackgroundTasks,
     request: Request,
     response: Response,
-) -> Union[JSONResponse, FileResponse]:
+    format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
+    accept: str | None = Header(None),
+) -> JSONResponse | FileResponse:
+    format = resolve_format(accept, format)
     validate_document_generation_request(body.variables)
 
     try:
@@ -323,11 +340,11 @@ async def generate_document_with_variables(
     validate_document_mime_type(file.mime_type)
 
     try:
-        pdf_file_path, context = generate_document(file, body.variables)
+        file_path, context = generate_document(file, body.variables, format=format)
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
-    background_tasks.add_task(os.remove, pdf_file_path)
+    background_tasks.add_task(os.remove, file_path)
 
     if file.mime_type == "application/vnd.google-apps.document":
         filename = file.name
@@ -335,13 +352,16 @@ async def generate_document_with_variables(
         filename, _ = os.path.splitext(file.name)
 
     await Result(
-        template_id=document_id, template_name=filename, variables=context
+        template_id=document_id,
+        template_name=filename,
+        variables=context,
+        format=format,
     ).insert()
 
     return FileResponse(
-        path=pdf_file_path,
-        filename=f"{document_id}.pdf",
-        media_type="application/pdf",
+        path=file_path,
+        filename=f"{document_id}.{format.value}",
+        media_type=FORMAT_TO_MIME[format],
     )
 
 
@@ -352,8 +372,12 @@ async def generate_document_with_variables(
     responses={
         **common_responses_with_validation,
         200: {
-            "description": "Returns generated PDF file",
-            "content": {"application/pdf": {}, "application/json": None},
+            "description": "Returns generated file",
+            "content": {
+                "application/pdf": {},
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "application/json": None,
+            },
         },
         403: {
             "description": "Forbidden",
@@ -369,7 +393,10 @@ async def generate_document_with_variables_for_user(
     background_tasks: BackgroundTasks,
     request: Request,
     response: Response,
-) -> Union[JSONResponse, FileResponse]:
+    format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
+    accept: str | None = Header(None),
+) -> JSONResponse | FileResponse:
+    format = resolve_format(accept, format)
     validate_document_generation_request(body.variables)
 
     try:
@@ -383,11 +410,11 @@ async def generate_document_with_variables_for_user(
     validate_document_mime_type(file.mime_type)
 
     try:
-        pdf_file_path, context = generate_document(file, body.variables)
+        file_path, context = generate_document(file, body.variables, format=format)
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
-    background_tasks.add_task(os.remove, pdf_file_path)
+    background_tasks.add_task(os.remove, file_path)
 
     user_exists = await User.find_one(User.id == user_id)
     if not user_exists:
@@ -399,14 +426,15 @@ async def generate_document_with_variables_for_user(
         filename, _ = os.path.splitext(file.name)
 
     await Result(
-        user=user_id,
+        user=cast(Link[User], user_id),
         template_id=document_id,
         template_name=filename,
         variables=context,
+        format=format,
     ).insert()
 
     return FileResponse(
-        path=pdf_file_path,
-        filename=f"{document_id}.pdf",
-        media_type="application/pdf",
+        path=file_path,
+        filename=f"{document_id}.{format.value}",
+        media_type=FORMAT_TO_MIME[format],
     )

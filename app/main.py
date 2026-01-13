@@ -14,7 +14,7 @@ from app.exceptions import document_validation_exception_handler, exception_hand
 from app.limiter import limiter
 from app.routes import api
 from app.settings import settings
-from app.models.database import Feedback, PinnedFolder, User, Result, Session
+from app.db.database import Feedback, PinnedFolder, User, Result, Session
 from app.utils import periodic_cleanup
 
 from bot.bot import bot
@@ -84,4 +84,4 @@ app.add_exception_handler(TemplateError, document_validation_exception_handler)
 app.add_exception_handler(Exception, async_exception_handler)
 
 app.include_router(api.router)
-app.mount("/", StaticFiles(directory="/app/static", html=True))
+# app.mount("/", StaticFiles(directory="/app/static", html=True))

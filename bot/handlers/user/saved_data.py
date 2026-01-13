@@ -1,10 +1,9 @@
-from typing import Dict, List, Optional, Tuple
 from aiogram.types import Message, CallbackQuery, InaccessibleMessage
 from aiogram.fsm.context import FSMContext
 from pymongo import ReturnDocument
 
-from app.enums import VariableType
-from app.models.database import User
+from app.enums import ValidationType
+from app.db.database import User
 from app.services.config import get_variables_dict
 from bot.keyboards.callback import SavedDataCallback
 from bot.keyboards.inline.saved_variables import saved_variables_keyboard
@@ -17,7 +16,7 @@ from bot.utils.delete_last_message import delete_last_message
 async def variables_selector(
     message: Message,
     state: FSMContext,
-    saved_valid_variables: List[Tuple[str, str]],
+    saved_valid_variables: list[tuple[str, str]],
     pos: int,
 ) -> None:
     if not saved_valid_variables:
@@ -56,10 +55,10 @@ async def saved_data_handler(message: Message, state: FSMContext) -> None:
 
     available_variables = get_variables_dict()
 
-    saved_valid_variables: List[Tuple[str, str]] = [
+    saved_valid_variables: list[tuple[str, str]] = [
         (var.variable, var.name)
         for var in available_variables.values()
-        if var.type != VariableType.CONSTANT
+        if var.type != ValidationType.CONSTANT
         and var.allow_save
         and var.variable in saved_variables
     ]
@@ -82,9 +81,7 @@ async def delete_all_saved_handler(callback: CallbackQuery, state: FSMContext) -
     await state.clear()
 
     user_id = callback.from_user.id
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
+    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"telegram_id": user_id},
         {"$set": {"saved_variables": {}}},
         return_document=ReturnDocument.AFTER,
@@ -113,10 +110,10 @@ async def view_saved_variable_handler(
 
     selected_pos = int(callback_data.q)
 
-    saved_valid_variables: List[Tuple[str, str]] = await state.get_value(
+    saved_valid_variables: list[tuple[str, str]] = await state.get_value(
         "saved_valid_variables", []
     )
-    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
+    saved_variables: dict[str, str] = await state.get_value("saved_variables", {})
 
     name, readable_name = saved_valid_variables[selected_pos]
     variable_value = saved_variables[name]
@@ -139,17 +136,15 @@ async def delete_saved_variable_handler(
 
     selected_pos = int(callback_data.q)
 
-    saved_valid_variables: List[Tuple[str, str]] = await state.get_value(
+    saved_valid_variables: list[tuple[str, str]] = await state.get_value(
         "saved_valid_variables", []
     )
-    saved_variables: Dict[str, str] = await state.get_value("saved_variables", {})
+    saved_variables: dict[str, str] = await state.get_value("saved_variables", {})
 
     name, readable_name = saved_valid_variables.pop(selected_pos)
     del saved_variables[name]
 
-    updated_user: Optional[
-        User
-    ] = await User.get_pymongo_collection().find_one_and_update(
+    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"telegram_id": callback.from_user.id},
         {"$unset": {f"saved_variables.{name}": ""}},
         return_document=ReturnDocument.AFTER,
@@ -180,7 +175,7 @@ async def go_to_variable_handler(
     await delete_last_message(callback.message, state)
 
     selected_pos = int(callback_data.q)
-    saved_valid_variables: List[Tuple[str, str]] = await state.get_value(
+    saved_valid_variables: list[tuple[str, str]] = await state.get_value(
         "saved_valid_variables", []
     )
 

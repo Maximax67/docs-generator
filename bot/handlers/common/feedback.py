@@ -1,4 +1,3 @@
-from typing import List, Optional, Union
 from aiogram import Bot
 from aiogram.types import (
     Message,
@@ -10,7 +9,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
-from app.models.database import Feedback
+from app.db.database import Feedback
 from app.settings import settings
 
 from bot.handlers.user.invalid_input import invalid_input_handler
@@ -23,8 +22,8 @@ async def store_message_mapping(
     user_id: int,
     user_message_id: int,
     admin_message_id: int,
-    info_message_id: Optional[int] = None,
-    is_info_message_admin: Optional[bool] = None,
+    info_message_id: int | None = None,
+    is_info_message_admin: bool | None = None,
 ) -> None:
     if (info_message_id is not None) != (is_info_message_admin is not None):
         raise ValueError(
@@ -59,7 +58,7 @@ async def store_message_mapping(
 
 async def get_user_message_id(
     admin_message_id: int,
-) -> Union[tuple[int, int], tuple[None, None]]:
+) -> tuple[int, int] | tuple[None, None]:
     feedback = await Feedback.find_one(Feedback.admin_message_id == admin_message_id)
     if feedback:
         return feedback.user_id, feedback.user_message_id
@@ -67,7 +66,7 @@ async def get_user_message_id(
     return None, None
 
 
-async def get_admin_message_id(user_id: int, user_message_id: int) -> Optional[int]:
+async def get_admin_message_id(user_id: int, user_message_id: int) -> int | None:
     feedback = await Feedback.find_one(
         Feedback.user_id == user_id, Feedback.user_message_id == user_message_id
     )
@@ -80,9 +79,9 @@ async def send_message_with_reply(
     reply_message_id: int,
     message_text: str,
     bot: Bot,
-    thread: Optional[int] = None,
-    entities: Optional[List[MessageEntity]] = None,
-    parse_mode: Optional[str] = UNSET_PARSE_MODE,
+    thread: int | None = None,
+    entities: list[MessageEntity] | None = None,
+    parse_mode: str | None = UNSET_PARSE_MODE,
 ) -> Message:
     try:
         return await bot.send_message(
@@ -111,8 +110,8 @@ async def send_message_with_reply(
 def adjust_entities_and_message_text(
     prefix: str,
     text: str,
-    entities: Optional[List[MessageEntity]],
-    user: Optional[User] = None,
+    entities: list[MessageEntity] | None,
+    user: User | None = None,
 ) -> tuple[str, list[MessageEntity]]:
     full_name = user.full_name if user else ""
     full_name_length = len(full_name.encode("utf-16-le")) // 2

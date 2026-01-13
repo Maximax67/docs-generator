@@ -1,14 +1,12 @@
-from typing import Optional
-
 from beanie import PydanticObjectId
 from fastapi import HTTPException, Header, Query, Request, status
 from fastapi.security import HTTPBearer
 
 from app.enums import TokenType, UserRole
-from app.models.database import User
+from app.db.database import User
 from app.services.auth import decode_jwt_token
 from app.settings import settings
-from app.models.auth import AuthorizedUser
+from app.schemas.auth import AuthorizedUser
 
 http_bearer = HTTPBearer()
 
@@ -26,7 +24,7 @@ def verify_telegram_token(
 
 
 def get_authorized_user(request: Request) -> AuthorizedUser:
-    access_token: Optional[str] = request.cookies.get(settings.ACCESS_COOKIE_NAME)
+    access_token: str | None = request.cookies.get(settings.ACCESS_COOKIE_NAME)
     if not access_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
@@ -98,7 +96,7 @@ async def authorize_user_or_admin(
 
 async def authorize_user_or_admin_query(
     request: Request,
-    user_id: Optional[str] = Query(None),
+    user_id: str | None = Query(None),
 ) -> AuthorizedUser:
     authorized_user = get_authorized_user(request)
     role = authorized_user.role

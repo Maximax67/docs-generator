@@ -1,15 +1,14 @@
-from typing import List, Optional
 from aiogram.types import Message
 
-from app.models.database import Feedback, User
+from app.db.database import Feedback, User
 from bot.utils.get_text_after_space import get_text_after_space
 
 
-async def ban_unban_user(message: Message, to_ban: bool) -> Optional[int]:
+async def ban_unban_user(message: Message, to_ban: bool) -> int | None:
     reply_message = message.reply_to_message
-    user: Optional[User] = None
-    user_id: Optional[int] = None
-    user_id_str: Optional[str] = None
+    user: User | None = None
+    user_id: int | None = None
+    user_id_str: str | None = None
 
     if message.text:
         user_id_str = get_text_after_space(message.text)
@@ -105,13 +104,13 @@ async def unban_handler(message: Message) -> None:
 
 
 async def ban_list_handler(message: Message) -> None:
-    users: List[User] = await User.find(User.is_banned == True).to_list()  # noqa: E712
+    users: list[User] = await User.find(User.is_banned == True).to_list()  # noqa: E712
 
     if not users:
         await message.reply("✅ Ніхто не заблокований")
         return
 
-    lines: List[str] = []
+    lines: list[str] = []
     for u in users:
         full_name = u.first_name
         if u.last_name:

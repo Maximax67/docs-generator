@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, cast
 from urllib.parse import urljoin
 
 import jwt
-from beanie import PydanticObjectId
+from beanie import Link, PydanticObjectId
 from fastapi import HTTPException, Request, Response
 from passlib.context import CryptContext
 from secrets import token_urlsafe
 
-from app.models.database import Session, User
+from app.db.database import Session, User
 from app.services.email import send_email
 from app.settings import settings
 from app.enums import TokenType
@@ -111,10 +111,10 @@ def create_jwt_token(
     token_type: TokenType,
     expires_delta: timedelta,
     jti: str,
-    extra_claims: Optional[Dict[str, Any]] = None,
+    extra_claims: dict[str, Any] | None = None,
 ) -> str:
     now = _utcnow()
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "sub": subject,
         "type": token_type,
         "iat": int(now.timestamp()),
@@ -140,9 +140,9 @@ def create_jwt_token(
     return token
 
 
-def decode_jwt_token(token: str) -> Dict[str, Any]:
+def decode_jwt_token(token: str) -> dict[str, Any]:
     try:
-        payload: Dict[str, Any] = jwt.decode(
+        payload: dict[str, Any] = jwt.decode(
             token,
             settings.JWT_SECRET.get_secret_value(),
             algorithms=[settings.JWT_ALGORITHM],
@@ -163,9 +163,9 @@ def decode_jwt_token(token: str) -> Dict[str, Any]:
 
 async def issue_token_pair(
     user: User,
-    session_name: Optional[str] = None,
-    session: Optional[Session] = None,
-) -> Tuple[str, str, int, int]:
+    session_name: str | None = None,
+    session: Session | None = None,
+) -> tuple[str, str, int, int]:
     if user.is_banned:
         raise HTTPException(status_code=403, detail="User is banned")
 
@@ -181,7 +181,7 @@ async def issue_token_pair(
         await session.save_changes()
     else:
         await Session(
-            user=user,
+            user=cast(Link[User], user),
             refresh_jti=refresh_jti,
             access_jti=access_jti,
             name=session_name,
@@ -215,9 +215,12 @@ async def issue_token_pair(
 
 async def rotate_refresh_token(
     user_id: PydanticObjectId, old_jti: str, session_name: str
-) -> Tuple[str, str, int, int]:
+) -> tuple[str, str, int, int]:
     session = await Session.find_one(Session.refresh_jti == old_jti, fetch_links=True)
-    if not session or session.user.id != user_id:
+    if (
+        not session
+        or session.user.id != user_id  # pyright: ignore[reportAttributeAccessIssue]
+    ):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     bloom_filter.add(session.access_jti)
@@ -230,10 +233,14 @@ async def rotate_refresh_token(
 
 
 async def revoke_all_sessions(user_id: PydanticObjectId) -> None:
-    async for session in Session.find(Session.user.id == user_id):
+    async for session in Session.find(
+        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+    ):
         bloom_filter.add(session.access_jti)
 
-    await Session.find(Session.user.id == user_id).delete()
+    await Session.find(
+        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+    ).delete()
 
 
 async def revoke_session_by_jti(jti: str) -> None:
@@ -260,7 +267,8 @@ async def logout_current_session(request: Request, response: Response) -> None:
         raise HTTPException(status_code=401, detail="Invalid subject in token")
 
     session = await Session.find_one(
-        Session.user.id == user_id, Session.access_jti == payload["jti"]
+        Session.user.id == user_id,  # pyright: ignore[reportAttributeAccessIssue]
+        Session.access_jti == payload["jti"],
     )
     if not session:
         raise HTTPException(status_code=401, detail="Not authenticated")

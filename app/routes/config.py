@@ -1,21 +1,19 @@
-from typing import List, Optional, Union
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-from app.enums import VariableType
-from app.models.common_responses import DetailResponse
-from app.models.config import ConfigResponse
+from app.enums import ValidationType
+from app.schemas.common_responses import DetailResponse
+from app.schemas.config import ConfigResponse
 from app.settings import settings
-from app.models.google import DriveFile
-from app.models.validation import (
+from app.schemas.google import DriveFile
+from app.schemas.validation import (
     ValidationResult,
     ValidationRule,
     ValidationRequest,
 )
-from app.models.variables import (
+from app.schemas.variables import (
     ConstantVariable,
-    MultichoiceVariable,
-    PlainVariable,
+    Variable,
     VariablesResponse,
 )
 from app.services.google_drive import (
@@ -68,9 +66,9 @@ async def get_config_file(request: Request, response: Response) -> DriveFile:
     )
 
 
-@router.get("/validation_rules", response_model=List[ValidationRule])
+@router.get("/validation_rules", response_model=list[ValidationRule])
 @limiter.limit("10/minute")
-async def get_rules(request: Request, response: Response) -> List[ValidationRule]:
+async def get_rules(request: Request, response: Response) -> list[ValidationRule]:
     return get_validation_rules()
 
 
@@ -130,7 +128,7 @@ async def get_rule(rule: str, request: Request, response: Response) -> Validatio
 @limiter.limit("10/minute")
 async def validate_rule(
     rule: str, body: ValidationRequest, request: Request, response: Response
-) -> Union[ValidationResult, JSONResponse]:
+) -> ValidationResult | JSONResponse:
     validate_rule_name(rule)
     validate_variable_val(body.value)
 
@@ -155,7 +153,7 @@ async def validate_rule(
 async def get_all_variables(
     request: Request,
     response: Response,
-    type: Optional[VariableType] = Query(None, description="Filter variables by type"),
+    type: ValidationType | None = Query(None, description="Filter variables by type"),
 ) -> VariablesResponse:
     variables = get_variables()
     if type:
@@ -166,7 +164,7 @@ async def get_all_variables(
 
 @router.get(
     "/variables/{variable}",
-    response_model=Union[PlainVariable, MultichoiceVariable, ConstantVariable],
+    response_model=Variable,
     responses={
         404: {
             "description": "Variable not found",
@@ -179,7 +177,7 @@ async def get_all_variables(
 @limiter.limit("10/minute")
 async def get_variable_config(
     variable: str, request: Request, response: Response
-) -> Union[PlainVariable, MultichoiceVariable, ConstantVariable]:
+) -> Variable:
     validate_variable_name(variable)
 
     var = get_variable(variable)
@@ -226,7 +224,7 @@ async def get_variable_config(
 @limiter.limit("10/minute")
 async def validate_variable_value(
     variable: str, body: ValidationRequest, request: Request, response: Response
-) -> Union[ValidationResult, JSONResponse]:
+) -> ValidationResult | JSONResponse:
     validate_variable_name(variable)
     validate_variable_val(body.value)
 

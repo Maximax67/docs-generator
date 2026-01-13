@@ -1,5 +1,5 @@
 import traceback
-from typing import Dict, Optional
+from typing import Any
 
 from aiogram import Bot
 from aiogram.types import LinkPreviewOptions
@@ -10,7 +10,7 @@ from app.settings import settings
 
 
 class ValidationErrorsException(Exception):
-    def __init__(self, errors: Dict[str, str]):
+    def __init__(self, errors: dict[str, Any]):
         self.errors = errors
         super().__init__(errors)
 
@@ -32,10 +32,10 @@ async def exception_handler(request: Request, exc: Exception, bot: Bot) -> Respo
     filtered_lines = [line for line in tb_lines if "app" in line or "bot" in line]
     formatted_tb = "".join(filtered_lines) or tb_lines[-1]
 
-    chat_id_str: Optional[str] = None
+    chat_id_str: str | None = None
 
     try:
-        message_info: Dict[str, str] = request.state.message_info
+        message_info: dict[str, str] = request.state.message_info
         chat_id_str = message_info.get("chat_id")
         user_id_str = message_info.get("user_id")
         full_name = message_info.get("full_name")

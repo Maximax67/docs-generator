@@ -1,7 +1,4 @@
-from typing import Optional
-
-
-def get_text_after_space(text: str) -> Optional[str]:
+def get_text_after_space(text: str) -> str | None:
     if not text:
         return None
 

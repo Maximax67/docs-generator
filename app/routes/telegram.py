@@ -1,10 +1,9 @@
-from typing import Dict
 from aiogram.types import Update
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.dependencies import require_admin, verify_telegram_token
 from app.exceptions import exception_handler
-from app.models.common_responses import DetailResponse
+from app.schemas.common_responses import DetailResponse
 
 from bot.bot import bot, dp
 from bot.utils.set_webhook import set_telegram_webhook
@@ -45,7 +44,7 @@ async def webhook(request: Request, response: Response) -> DetailResponse:
     try:
         message = update.message
         if message:
-            message_info: Dict[str, str] = {
+            message_info: dict[str, str] = {
                 "chat_id": str(message.chat.id),
                 "message_thread_id": (
                     str(message.message_thread_id) if message.message_thread_id else ""

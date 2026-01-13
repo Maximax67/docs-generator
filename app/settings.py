@@ -1,4 +1,3 @@
-from typing import Optional
 from pydantic import HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,10 +9,10 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str
 
     ADMIN_CHAT_ID: int
-    ADMIN_GREETING_THREAD_ID: Optional[int] = None
-    ADMIN_ERRORS_THREAD_ID: Optional[int] = None
-    ADMIN_DOCUMENTS_THREAD_ID: Optional[int] = None
-    ADMIN_FEEDBACK_THREAD_ID: Optional[int] = None
+    ADMIN_GREETING_THREAD_ID: int | None = None
+    ADMIN_ERRORS_THREAD_ID: int | None = None
+    ADMIN_DOCUMENTS_THREAD_ID: int | None = None
+    ADMIN_FEEDBACK_THREAD_ID: int | None = None
 
     ADMIN_GREETING_ENABLED: bool = True
 
@@ -44,12 +43,12 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRES_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRES_DAYS: int = 30
-    JWT_ISSUER: Optional[str] = None
-    JWT_AUDIENCE: Optional[str] = None
+    JWT_ISSUER: str | None = None
+    JWT_AUDIENCE: str | None = None
 
     ACCESS_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
-    COOKIE_DOMAIN: Optional[str] = None
+    COOKIE_DOMAIN: str | None = None
     COOKIE_SECURE: bool = True
     COOKIE_SAMESITE: str = "lax"  # 'lax' | 'strict' | 'none'
 

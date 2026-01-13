@@ -1,10 +1,10 @@
 import os
 import tempfile
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 from docxtpl import DocxTemplate  # type: ignore[import-untyped]
 
-from app.models.google import DriveFile
-from app.models.variables import ConstantVariable, MultichoiceVariable, PlainVariable
+from app.schemas.google import DriveFile
+from app.schemas.variables import ConstantVariable, Variable
 from app.services.config import get_preview_variables, get_variables_dict
 from app.services.google_drive import (
     format_drive_file_metadata,
@@ -15,16 +15,17 @@ from app.services.jinja import jinja_env
 from app.services.soffice import convert_file
 from app.services.variables import validate_variable
 from app.exceptions import ValidationErrorsException
+from app.enums import DocumentResponseFormat
 
 
-def get_all_documents() -> List[DriveFile]:
+def get_all_documents() -> list[DriveFile]:
     documents = get_accessible_documents()
 
     return [format_drive_file_metadata(document) for document in documents]
 
 
 def download_docx_document(document: DriveFile) -> str:
-    download_mime_type: Optional[str] = None
+    download_mime_type: str | None = None
 
     if document.mime_type == "application/vnd.google-apps.document":
         download_mime_type = (
@@ -36,7 +37,7 @@ def download_docx_document(document: DriveFile) -> str:
         if not extension:
             extension = ".docx"
 
-    temp_path: Optional[str] = None
+    temp_path: str | None = None
     temp_fd, temp_path = tempfile.mkstemp(suffix=extension)
 
     try:
@@ -58,8 +59,8 @@ def download_docx_document(document: DriveFile) -> str:
             os.remove(temp_path)
 
 
-def download_document_and_get_variables(document: DriveFile) -> Tuple[str, Set[str]]:
-    docx_path: Optional[str] = None
+def download_document_and_get_variables(document: DriveFile) -> tuple[str, set[str]]:
+    docx_path: str | None = None
 
     try:
         docx_path = download_docx_document(document)
@@ -75,16 +76,12 @@ def download_document_and_get_variables(document: DriveFile) -> Tuple[str, Set[s
 
 
 def validate_document_variables(
-    document_variables: Set[str],
-) -> Tuple[
-    List[Union[PlainVariable, MultichoiceVariable, ConstantVariable]], List[str]
-]:
+    document_variables: set[str],
+) -> tuple[list[Variable], list[str]]:
     available_variables = get_variables_dict()
 
-    found_variables: List[
-        Union[PlainVariable, MultichoiceVariable, ConstantVariable]
-    ] = []
-    unknown_variables: List[str] = []
+    found_variables: list[Variable] = []
+    unknown_variables: list[str] = []
 
     for var_name in document_variables:
         if var_name in available_variables:
@@ -97,18 +94,19 @@ def validate_document_variables(
 
 def get_validated_document_variables(
     document: DriveFile,
-) -> Tuple[
-    List[Union[PlainVariable, MultichoiceVariable, ConstantVariable]], List[str]
-]:
+) -> tuple[list[Variable], list[str]]:
     docx_path, variables = download_document_and_get_variables(document)
     os.remove(docx_path)
 
     return validate_document_variables(variables)
 
 
-def generate_preview(document: DriveFile) -> Tuple[str, Set[str]]:
-    docx_path: Optional[str] = None
-    rendered_path: Optional[str] = None
+def generate_preview(
+    document: DriveFile,
+    format: DocumentResponseFormat = DocumentResponseFormat.PDF,
+) -> tuple[str, set[str]]:
+    docx_path: str | None = None
+    rendered_path: str | None = None
 
     try:
         docx_path = download_docx_document(document)
@@ -123,41 +121,47 @@ def generate_preview(document: DriveFile) -> Tuple[str, Set[str]]:
         os.close(rendered_fd)
         doc.save(rendered_path)
 
-        pdf_path = convert_file(rendered_path, "pdf")
+        if format == DocumentResponseFormat.DOCX:
+            return rendered_path, variables
 
-        return pdf_path, variables
+        converted_path = convert_file(rendered_path, format.value)
+
+        return converted_path, variables
     finally:
         if docx_path and os.path.exists(docx_path):
             os.remove(docx_path)
-        if rendered_path and os.path.exists(rendered_path):
+
+        if (
+            format != DocumentResponseFormat.DOCX
+            and rendered_path
+            and os.path.exists(rendered_path)
+        ):
             os.remove(rendered_path)
 
 
 def get_document_and_prepare_context(
     document: DriveFile,
-    variables: Dict[str, str],
-    exclude_constants: Optional[bool] = None,
-) -> Tuple[str, Dict[str, str]]:
+    variables: dict[str, str],
+    exclude_constants: bool | None = None,
+) -> tuple[str, dict[str, str]]:
     available_variables = get_variables_dict()
     docx_path, document_variables = download_document_and_get_variables(document)
 
     try:
-        errors: Dict[str, str] = {}
+        errors: dict[str, Any] = {}
         for var_name in variables:
             if var_name not in document_variables:
-                errors[var_name] = "Variable is not used in the document"
                 continue
 
             variable = available_variables.get(var_name)
             if not variable:
-                errors[var_name] = "Unknown variable"
                 continue
 
             if exclude_constants is None and isinstance(variable, ConstantVariable):
                 errors[var_name] = "Cannot set constant variable"
                 continue
 
-        context: Dict[str, str] = {}
+        context: dict[str, str] = {}
         for var_name in document_variables:
             variable = available_variables.get(var_name)
             if variable is None:
@@ -171,7 +175,7 @@ def get_document_and_prepare_context(
 
             value = variables.get(var_name)
             if value is None:
-                if not variable.allow_skip:
+                if not variable.nullable:
                     errors[var_name] = "Missing required variable"
 
                 continue
@@ -182,10 +186,12 @@ def get_document_and_prepare_context(
                     errors[var_name] = error
                     continue
 
-            context[var_name] = value
-
         if errors:
             raise ValidationErrorsException(errors)
+
+        for var_name, var_value in variables.items():
+            if var_name not in context:
+                context[var_name] = var_value
 
         return docx_path, context
     except Exception as e:
@@ -196,18 +202,32 @@ def get_document_and_prepare_context(
 
 
 def validate_variables_for_document(
-    document: DriveFile, variables: Dict[str, str]
+    document: DriveFile, variables: dict[str, str]
 ) -> None:
-    docx_path, _ = get_document_and_prepare_context(document, variables)
-    os.remove(docx_path)
+    docx_path, context = get_document_and_prepare_context(document, variables)
+
+    try:
+        doc = DocxTemplate(docx_path)
+        doc.render(context, jinja_env, autoescape=True)
+        undeclared = doc.get_undeclared_template_variables(jinja_env, context)
+    finally:
+        os.remove(docx_path)
+
+    errors: dict[str, str] = {}
+    for variable in undeclared:
+        errors[variable] = "Undeclared variable"
+
+    if errors:
+        raise ValidationErrorsException(errors)
 
 
 def generate_document(
     document: DriveFile,
-    variables: Dict[str, str],
-    exclude_constants: Optional[bool] = None,
-) -> Tuple[str, Dict[str, str]]:
-    rendered_path: Optional[str] = None
+    variables: dict[str, str],
+    exclude_constants: bool | None = None,
+    format: DocumentResponseFormat = DocumentResponseFormat.PDF,
+) -> tuple[str, dict[str, str]]:
+    rendered_path: str | None = None
     docx_path, context = get_document_and_prepare_context(
         document, variables, exclude_constants
     )
@@ -220,11 +240,19 @@ def generate_document(
         os.close(rendered_fd)
         doc.save(rendered_path)
 
-        pdf_path = convert_file(rendered_path, "pdf")
+        if format == DocumentResponseFormat.DOCX:
+            return rendered_path, context
 
-        return pdf_path, context
+        converted_path = convert_file(rendered_path, str(format.value))
+
+        return converted_path, context
     finally:
         if docx_path and os.path.exists(docx_path):
             os.remove(docx_path)
-        if rendered_path and os.path.exists(rendered_path):
+
+        if (
+            format != DocumentResponseFormat.DOCX
+            and rendered_path
+            and os.path.exists(rendered_path)
+        ):
             os.remove(rendered_path)

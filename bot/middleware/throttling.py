@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict
+from typing import Any
 
 from aiogram import BaseMiddleware
 from aiogram.dispatcher.event.handler import HandlerObject
@@ -24,12 +24,12 @@ class ThrottlingMiddleware(BaseMiddleware):
 
         This constructor sets up the initial rate limit and other throttling parameters.
         """
-        self.limiters: Dict[Any, Any] = {}
+        self.limiters: dict[Any, Any] = {}
         self.default_rate = default_rate
         self.count_throttled = 1
         self.last_throttled = 0
 
-    async def __call__(self, handler: Any, event: Any, data: Dict[str, Any]) -> Any:
+    async def __call__(self, handler: Any, event: Any, data: dict[str, Any]) -> Any:
         """
         Processes incoming messages and enforces throttling rules.
 

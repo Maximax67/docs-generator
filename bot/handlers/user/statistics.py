@@ -1,6 +1,6 @@
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-from app.models.database import Result, User
+from app.db.database import Result, User
 from bot.utils.delete_last_message import delete_last_message
 
 

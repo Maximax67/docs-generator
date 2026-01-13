@@ -1,11 +1,10 @@
-from typing import Optional
 from pydantic import BaseModel
 
 
 class ValidationRule(BaseModel):
     name: str
     regex: str
-    error_message: Optional[str] = None
+    error_message: str | None = None
     is_valid: bool
 
 
@@ -15,4 +14,4 @@ class ValidationRequest(BaseModel):
 
 class ValidationResult(BaseModel):
     is_valid: bool
-    error: Optional[str]
+    error: str | None

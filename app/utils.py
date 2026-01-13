@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from typing import Any
 from beanie import PydanticObjectId
 from fastapi import HTTPException, Request
 from pymongo import ReturnDocument
@@ -10,12 +10,17 @@ from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.services.rules import is_rule_name_valid
 from app.settings import settings
 from app.services.variables import is_variable_name_valid, is_variable_value_valid
-from app.models.auth import AuthorizedUser
-from app.models.database import Session, User
-from app.enums import UserRole
+from app.schemas.auth import AuthorizedUser
+from app.db.database import Session, User
+from app.enums import MIME_TO_FORMAT, DocumentResponseFormat, UserRole
 
 
-def validate_variable_name(variable: str) -> None:
+def validate_variable_name(variable: Any) -> None:
+    if not isinstance(variable, str):
+        raise HTTPException(
+            status_code=422, detail=f"Variable name should be string: '{variable}'"
+        )
+
     if not is_variable_name_valid(variable):
         raise HTTPException(
             status_code=422, detail=f"Invalid variable name: '{variable}'"
@@ -27,9 +32,32 @@ def validate_rule_name(rule: str) -> None:
         raise HTTPException(status_code=422, detail=f"Invalid rule name: '{rule}'")
 
 
-def validate_variable_value(value: str) -> None:
-    if not is_variable_value_valid(value):
-        raise HTTPException(status_code=422, detail=f"Invalid variable value: '{value}")
+def validate_variable_value(value: Any) -> None:
+    if isinstance(value, str):
+        if not is_variable_value_valid(value):
+            raise HTTPException(
+                status_code=422, detail=f"Invalid variable value: '{value}'"
+            )
+
+        return
+
+    if isinstance(value, int) or isinstance(value, float):
+        return
+
+    if isinstance(value, list):
+        for v in value:
+            validate_variable_value(v)
+
+        return
+
+    if isinstance(value, dict):
+        for n, v in value.items():
+            validate_variable_name(n)
+            validate_variable_value(v)
+
+        return
+
+    raise HTTPException(status_code=422, detail=f"Invalid variable value: '{value}'")
 
 
 def validate_saved_variables_count(variables_count: int) -> None:
@@ -40,7 +68,7 @@ def validate_saved_variables_count(variables_count: int) -> None:
         )
 
 
-def validate_document_generation_request(variables: Dict[str, str]) -> None:
+def validate_document_generation_request(variables: dict[str, Any]) -> None:
     if len(variables) > settings.MAX_DOCUMENT_VARIABLES:
         raise HTTPException(
             status_code=422,
@@ -95,7 +123,7 @@ async def update_user_bool_field(
         # Non-GOD admins can only modify regular users
         query["role"] = UserRole.USER.value
 
-    updated_user: Optional[User] = await collection.find_one_and_update(
+    updated_user: User | None = await collection.find_one_and_update(
         query,
         {"$set": {field: value}},
         return_document=ReturnDocument.AFTER,
@@ -121,3 +149,19 @@ def get_session_name_from_user_agent(request: Request) -> str:
     user_agent = parse(user_agent_str)
 
     return str(user_agent).replace(" / ", ", ")
+
+
+def resolve_format(
+    accept: str | None,
+    format: DocumentResponseFormat | None,
+) -> DocumentResponseFormat:
+    if accept:
+        for mime in accept.split(","):
+            mime = mime.split(";")[0].strip()
+            if mime in MIME_TO_FORMAT:
+                return MIME_TO_FORMAT[mime]
+
+    if format:
+        return format
+
+    return DocumentResponseFormat.PDF

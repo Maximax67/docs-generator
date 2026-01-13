@@ -1,6 +1,6 @@
 from aiogram.types import User as TG_USER
 
-from app.models.database import User
+from app.db.database import User
 
 
 async def create_user(user: TG_USER) -> User:

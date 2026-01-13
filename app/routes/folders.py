@@ -1,9 +1,9 @@
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.dependencies import require_admin
-from app.models.common_responses import DetailResponse
+from app.schemas.common_responses import DetailResponse
 from app.services.google_drive import (
     format_drive_file_metadata,
     format_drive_folder_metadata,
@@ -12,20 +12,20 @@ from app.services.google_drive import (
     get_accessible_folders,
     get_drive_item_metadata,
 )
-from app.models.google import (
+from app.schemas.google import (
     FolderContents,
     FolderListResponse,
     FolderTree,
     FolderTreeResponse,
 )
-from app.models.database import PinnedFolder
+from app.db.database import PinnedFolder
 from app.utils import ensure_folder
 from app.limiter import limiter
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
 
-common_responses: Dict[Union[int, str], Dict[str, Any]] = {
+common_responses: dict[int | str, dict[str, Any]] = {
     404: {
         "description": "Folder not found or access denied",
         "content": {
@@ -48,7 +48,7 @@ common_responses: Dict[Union[int, str], Dict[str, Any]] = {
 @router.get("", response_model=FolderListResponse)
 @limiter.limit("5/minute")
 async def list_folders(
-    request: Request, response: Response, pinned: Optional[bool] = Query(None)
+    request: Request, response: Response, pinned: bool | None = Query(None)
 ) -> FolderListResponse:
     folders = get_accessible_folders()
     pinned_folder_objs = await PinnedFolder.find_all().to_list()
@@ -74,8 +74,8 @@ async def get_folders_tree(request: Request, response: Response) -> FolderTreeRe
     drive_items = get_accessible_files_and_folders()
     children_map = defaultdict(list)
 
-    pinned_items: List[Dict[str, Any]] = []
-    roots: List[FolderTree] = []
+    pinned_items: list[dict[str, Any]] = []
+    roots: list[FolderTree] = []
 
     for item in drive_items:
         if item["id"] in pinned_ids:
@@ -85,7 +85,7 @@ async def get_folders_tree(request: Request, response: Response) -> FolderTreeRe
         for parent_id in item.get("parents", []):
             children_map[parent_id].append(item)
 
-    def build_node(item: Dict[str, Any], parent: Optional[FolderTree]) -> None:
+    def build_node(item: dict[str, Any], parent: FolderTree | None) -> None:
         mime_type = item["mimeType"]
 
         if mime_type == "application/vnd.google-apps.folder":
