@@ -14,7 +14,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app.dependencies import authorize_user_or_admin
-from app.db.database import Result, User
+from app.models import Result, User
 from app.schemas.google import DriveFile, DriveFileListResponse
 from app.schemas.documents import (
     DocumentDetails,
@@ -27,6 +27,9 @@ from app.services.documents import (
     get_all_documents,
     get_validated_document_variables,
     generate_document,
+    resolve_format,
+    validate_document_generation_request,
+    validate_document_mime_type,
     validate_variables_for_document,
 )
 from app.services.google_drive import (
@@ -37,11 +40,6 @@ from app.services.google_drive import (
 from app.exceptions import ValidationErrorsException
 from app.limiter import limiter
 from beanie import Link, PydanticObjectId
-from app.utils import (
-    resolve_format,
-    validate_document_generation_request,
-    validate_document_mime_type,
-)
 from app.enums import FORMAT_TO_MIME, DocumentResponseFormat
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -117,8 +115,6 @@ async def get_document(
     return DocumentDetails(
         file=file,
         variables=variables,
-        unknown_variables=unknown_variables,
-        is_valid=is_valid,
     )
 
 

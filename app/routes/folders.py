@@ -12,14 +12,14 @@ from app.services.google_drive import (
     get_accessible_folders,
     get_drive_item_metadata,
 )
+from app.services.documents import ensure_folder
 from app.schemas.google import (
     FolderContents,
     FolderListResponse,
     FolderTree,
     FolderTreeResponse,
 )
-from app.db.database import PinnedFolder
-from app.utils import ensure_folder
+from app.models import PinnedFolder
 from app.limiter import limiter
 
 router = APIRouter(prefix="/folders", tags=["folders"])

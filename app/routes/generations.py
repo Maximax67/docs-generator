@@ -19,12 +19,15 @@ from app.services.google_drive import (
     format_drive_file_metadata,
     get_drive_item_metadata,
 )
-from app.services.documents import generate_document
+from app.services.documents import (
+    generate_document,
+    validate_document_generation_request,
+    validate_document_mime_type,
+)
 from app.schemas.auth import AuthorizedUser
-from app.db.database import Result, User
-from app.schemas.generations import PaginatedResults
+from app.models import Result, User
+from app.schemas.common_responses import Paginated
 from app.dependencies import get_authorized_user, authorize_user_or_admin_query
-from app.utils import validate_document_generation_request, validate_document_mime_type
 from app.exceptions import ValidationErrorsException
 
 
@@ -50,7 +53,7 @@ common_responses: dict[int | str, dict[str, Any]] = {
 
 @router.get(
     "",
-    response_model=PaginatedResults,
+    response_model=Paginated[Result],
     responses={401: common_responses[401], 403: common_responses[403]},
 )
 @limiter.limit("10/minute")
@@ -62,7 +65,7 @@ async def get_results_documents(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     authorized_user: AuthorizedUser = Depends(authorize_user_or_admin_query),
-) -> PaginatedResults:
+) -> Paginated[Result]:
     query: dict[str, str | PydanticObjectId | None] = {}
 
     if user_id is None:
@@ -119,7 +122,7 @@ async def get_results_documents(
         page_size=page_size,
     )
 
-    return PaginatedResults(data=results, meta=meta)
+    return Paginated(data=results, meta=meta)
 
 
 @router.get(

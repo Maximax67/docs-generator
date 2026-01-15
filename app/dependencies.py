@@ -3,7 +3,7 @@ from fastapi import HTTPException, Header, Query, Request, status
 from fastapi.security import HTTPBearer
 
 from app.enums import TokenType, UserRole
-from app.db.database import User
+from app.models import User
 from app.services.auth import decode_jwt_token
 from app.settings import settings
 from app.schemas.auth import AuthorizedUser

@@ -10,7 +10,7 @@ from fastapi import HTTPException, Request, Response
 from passlib.context import CryptContext
 from secrets import token_urlsafe
 
-from app.db.database import Session, User
+from app.models import Session, User
 from app.services.email import send_email
 from app.settings import settings
 from app.enums import TokenType
@@ -65,7 +65,7 @@ def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(
         key=settings.ACCESS_COOKIE_NAME,
         domain=settings.COOKIE_DOMAIN,
-        path="/",
+        path="/api",
     )
     response.delete_cookie(
         key=settings.REFRESH_COOKIE_NAME,

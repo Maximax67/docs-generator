@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, BinaryIO
+from cachetools import TTLCache, cached
 from googleapiclient.discovery import build  # type: ignore[import-untyped]
 from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import-untyped]
 
@@ -14,10 +15,12 @@ from app.google_credentials import credentials
 
 drive_client = build("drive", "v3", credentials=credentials)
 
+folder_graph_cache = TTLCache(maxsize=1, ttl=60)
+
 
 def get_results_by_query(
     query: str,
-    fields: str = "nextPageToken, files(id, name, mimeType, modifiedTime, createdTime, webViewLink, size)",
+    fields: str = "nextPageToken, files(id, name, mimeType, parents, modifiedTime, createdTime, webViewLink, size)",
 ) -> list[dict[str, Any]]:
     results = []
     page_token = None
@@ -58,10 +61,7 @@ def get_accessible_files_and_folders() -> list[dict[str, Any]]:
     )
     mime_types_query += " or mimeType='application/vnd.google-apps.folder'"
 
-    return get_results_by_query(
-        f"({mime_types_query}) and trashed=false",
-        fields="nextPageToken, files(id, name, mimeType, parents, modifiedTime, createdTime, webViewLink, size)",
-    )
+    return get_results_by_query(f"({mime_types_query}) and trashed=false")
 
 
 def get_accessible_documents() -> list[dict[str, Any]]:
@@ -71,6 +71,87 @@ def get_accessible_documents() -> list[dict[str, Any]]:
     query = f"({mime_types_query}) and trashed=false"
 
     return get_results_by_query(query)
+
+
+@cached(folder_graph_cache)
+def get_folder_graph():
+    folders = get_accessible_folders()
+
+    graph = {}
+
+    for f in folders:
+        graph[f["id"]] = {
+            "id": f["id"],
+            "name": f["name"],
+            "parents": f.get("parents", []),
+            "children": set(),
+        }
+
+    for folder_id, node in graph.items():
+        for parent_id in node["parents"]:
+            if parent_id in graph:
+                graph[parent_id]["children"].add(folder_id)
+
+    return graph
+
+
+def get_folder_path(folder_id: str) -> list[str]:
+    graph = get_folder_graph()
+
+    path: list[str] = []
+    current_id = folder_id
+
+    while current_id in graph:
+        path.append(current_id)
+        node = graph[current_id]
+        parents = node.get("parents", [])
+        if not parents:
+            break
+
+        current_id = parents[0]
+
+    path.reverse()
+
+    return path
+
+
+def get_item_path(item_id: str) -> list[str]:
+    graph = get_folder_graph()
+
+    path: list[str] = []
+
+    if item_id in graph:
+        current_id = item_id
+    else:
+        # Probably a file
+        metadata: dict[str, Any] = (
+            drive_client.files()
+            .get(
+                fileId=item_id,
+                fields="parents",
+            )
+            .execute()
+        )
+
+        parents = metadata.get("parents", [])
+        if not parents:
+            return []
+
+        current_id = parents[0]
+        path.append(item_id)
+
+    while current_id in graph:
+        path.append(current_id)
+        node = graph[current_id]
+        parents = node.get("parents", [])
+        if not parents:
+            break
+
+        current_id = parents[0]
+
+    path.reverse()
+
+    return path
 
 
 def download_file(

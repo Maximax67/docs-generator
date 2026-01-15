@@ -1,7 +1,7 @@
 from typing import Annotated
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.db.database import User
+from app.models import User
 from app.enums import UserRole
 from app.constants import NAME_REGEX
 

@@ -1,33 +1,6 @@
 from enum import Enum
 
 
-class VariableType(str, Enum):
-    STRING = "string"
-    INTEGER = "number"
-    FLOAT = "float"
-    ARRAY = "array"
-    OBJECT = "object"
-    BOOLEAN = "boolean"
-
-
-
-class ValidationType(str, Enum):
-    PLAIN = "plain"
-    MULTICHOICE = "multichoice"
-    CONSTANT = "constant"
-    ROW = "row"
-    LOOP = "loop"
-
-
-class ConfigSheetName(str, Enum):
-    VALIDATION = "Validation"
-    VARIABLES = "Variables"
-    MULTICHOICE_VARIABLES = "Multichoice_Variables"
-    CONSTANTS = "Constants"
-    ROW = "Rows"
-    LOOPS = "Loops"
-
-
 class TokenType(str, Enum):
     ACCESS = "access"
     REFRESH = "refresh"

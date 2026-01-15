@@ -4,7 +4,7 @@ from typing import Any, AsyncGenerator
 from beanie import init_beanie
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+# from fastapi.staticfiles import StaticFiles
 from jinja2 import TemplateError
 from pymongo import AsyncMongoClient
 from slowapi import _rate_limit_exceeded_handler
@@ -14,14 +14,21 @@ from app.exceptions import document_validation_exception_handler, exception_hand
 from app.limiter import limiter
 from app.routes import api
 from app.settings import settings
-from app.db.database import Feedback, PinnedFolder, User, Result, Session
-from app.utils import periodic_cleanup
+from app.models import (
+    Feedback,
+    PinnedFolder,
+    User,
+    Result,
+    Session,
+    Variable,
+    SavedVariable,
+)
+from app.utils.cleanup import periodic_cleanup
 
-from bot.bot import bot
-from bot.utils.notify_admins import notify_admins
-from bot.utils.set_bot_commands import set_bot_commands
-from bot.utils.set_webhook import set_telegram_webhook
-
+# from bot.bot import bot
+# from bot.utils.notify_admins import notify_admins
+# from bot.utils.set_bot_commands import set_bot_commands
+# from bot.utils.set_webhook import set_telegram_webhook
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -30,15 +37,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     await init_beanie(
         database=client["docs_generator"],
-        document_models=[PinnedFolder, Feedback, User, Result, Session],
+        document_models=[
+            Feedback,
+            PinnedFolder,
+            User,
+            Result,
+            Session,
+            Variable,
+            SavedVariable,
+        ],
     )
-    await set_telegram_webhook(bot)
-    await set_bot_commands(bot)
+    # await set_telegram_webhook(bot)
+    # await set_bot_commands(bot)
 
     cleanup_task = asyncio.create_task(periodic_cleanup())
 
-    if settings.ADMIN_GREETING_ENABLED:
-        await notify_admins(bot)
+    # if settings.ADMIN_GREETING_ENABLED:
+    #    await notify_admins(bot)
 
     yield
 
@@ -48,11 +63,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except asyncio.CancelledError:
         pass
 
-    await bot.session.close()
+    # await bot.session.close()
 
 
 async def async_exception_handler(request: Request, exc: Exception) -> Response:
-    return await exception_handler(request, exc, bot)
+    return Response(status_code=500)
+    #return await exception_handler(request, exc, bot)
 
 
 origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS else []

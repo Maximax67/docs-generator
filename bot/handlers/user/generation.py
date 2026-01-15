@@ -6,7 +6,7 @@ from beanie import Link
 
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.enums import DocumentResponseFormat, ValidationType
-from app.db.database import Result, PinnedFolder, User
+from app.models import Result, PinnedFolder, User
 from app.schemas.google import DriveFile, DriveFolder
 from app.schemas.variables import (
     LoopVariable,

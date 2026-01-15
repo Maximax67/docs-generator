@@ -1,6 +1,6 @@
 from aiogram.types import Message
 
-from app.db.database import Feedback, User
+from app.models import Feedback, User
 from bot.utils.get_text_after_space import get_text_after_space
 
 

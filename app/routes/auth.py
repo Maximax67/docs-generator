@@ -16,7 +16,7 @@ from app.schemas.auth import (
     SessionInfo,
 )
 from app.schemas.common_responses import DetailResponse
-from app.db.database import User, Session
+from app.models import User, Session
 from app.services.auth import (
     clear_auth_cookies,
     create_jwt_token,
@@ -36,7 +36,7 @@ from app.settings import settings
 from app.dependencies import get_current_user
 from app.limiter import limiter
 from app.services.bloom_filter import bloom_filter
-from app.utils import get_session_name_from_user_agent
+from app.utils.user_agent import get_session_name_from_user_agent
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])

@@ -3,7 +3,7 @@ from aiogram.fsm.context import FSMContext
 from pymongo import ReturnDocument
 
 from app.enums import ValidationType
-from app.db.database import User
+from app.models import User
 from app.services.config import get_variables_dict
 from bot.keyboards.callback import SavedDataCallback
 from bot.keyboards.inline.saved_variables import saved_variables_keyboard

@@ -27,15 +27,7 @@ class Settings(BaseSettings):
 
     API_TOKEN: SecretStr
 
-    CONFIG_SPREADSHEET_ID: str
-
-    CONFIG_CACHE_DURATION: int = 300
-    DEFAULT_VARIABLE_VALUE: str = "Value"
-
-    MAX_RULE_NAME: int = 32
-    MAX_VARIABLE_NAME: int = 32
-    MAX_VARIABLE_VALUE: int = 8192
-
+    MAX_VARIABLE_NAME: int = 100
     MAX_DOCUMENT_VARIABLES: int = 1000
     MAX_SAVED_VARIABLES: int = 100
 

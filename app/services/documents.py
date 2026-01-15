@@ -1,11 +1,10 @@
 import os
 import tempfile
 from typing import Any
-from docxtpl import DocxTemplate  # type: ignore[import-untyped]
+from docxtpl import DocxTemplate
+from fastapi import HTTPException  # type: ignore[import-untyped]
 
 from app.schemas.google import DriveFile
-from app.schemas.variables import ConstantVariable, Variable
-from app.services.config import get_preview_variables, get_variables_dict
 from app.services.google_drive import (
     format_drive_file_metadata,
     download_file,
@@ -13,9 +12,10 @@ from app.services.google_drive import (
 )
 from app.services.jinja import jinja_env
 from app.services.soffice import convert_file
-from app.services.variables import validate_variable
 from app.exceptions import ValidationErrorsException
-from app.enums import DocumentResponseFormat
+from app.enums import DocumentResponseFormat, MIME_TO_FORMAT
+from app.settings import settings
+from app.constants import DOC_COMPATIBLE_MIME_TYPES
 
 
 def get_all_documents() -> list[DriveFile]:
@@ -256,3 +256,55 @@ def generate_document(
             and os.path.exists(rendered_path)
         ):
             os.remove(rendered_path)
+
+
+def validate_saved_variables_count(variables_count: int) -> None:
+    if variables_count > settings.MAX_SAVED_VARIABLES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot store more than {settings.MAX_SAVED_VARIABLES} variables",
+        )
+
+
+def validate_document_generation_request(variables: dict[str, Any]) -> None:
+    if len(variables) > settings.MAX_DOCUMENT_VARIABLES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Documents can not have more than {settings.MAX_DOCUMENT_VARIABLES} variables",
+        )
+
+    for variable, value in variables.items():
+        validate_variable_name(variable)
+        validate_variable_value(value)
+
+
+def validate_document_mime_type(mime_type: str) -> None:
+    if mime_type not in DOC_COMPATIBLE_MIME_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail="Requested document mime type not supported",
+        )
+
+
+def ensure_folder(mime_type: str) -> None:
+    if mime_type != "application/vnd.google-apps.folder":
+        raise HTTPException(
+            status_code=400,
+            detail="The requested resource is not a folder",
+        )
+
+
+def resolve_format(
+    accept: str | None,
+    format: DocumentResponseFormat | None,
+) -> DocumentResponseFormat:
+    if accept:
+        for mime in accept.split(","):
+            mime = mime.split(";")[0].strip()
+            if mime in MIME_TO_FORMAT:
+                return MIME_TO_FORMAT[mime]
+
+    if format:
+        return format
+
+    return DocumentResponseFormat.PDF

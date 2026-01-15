@@ -1,6 +1,5 @@
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import JSONResponse
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from beanie import PydanticObjectId
@@ -10,22 +9,15 @@ from app.limiter import limiter
 from app.schemas.common_responses import DetailResponse
 from app.schemas.users import AllUsersResponse, UserUpdateRequest
 from app.services.auth import clear_auth_cookies
+from app.services.documents import validate_saved_variables_count
+from app.services.users import update_user_bool_field
 from app.services.bloom_filter import bloom_filter
-from app.services.variables import validate_user_variable, validate_user_variables
-from app.settings import settings
 from app.schemas.auth import AuthorizedUser
-from app.db.database import Result, Session, User
+from app.models import Result, Session, User
 from app.dependencies import (
     authorize_user_or_admin,
-    authorize_user_or_god,
     require_admin,
     require_god,
-)
-from app.utils import (
-    update_user_bool_field,
-    validate_saved_variables_count,
-    validate_variable_name,
-    validate_variable_value,
 )
 
 
@@ -219,191 +211,6 @@ async def delete_user_generated_documents(
         raise HTTPException(status_code=404, detail="Generations not found")
 
     return DetailResponse(detail=f"Deleted: {result.deleted_count}")
-
-
-@router.get(
-    "/{user_id}/saved_variables",
-    response_model=dict[str, Any],
-    responses=common_responses,
-    dependencies=[Depends(authorize_user_or_admin)],
-)
-@limiter.limit("5/minute")
-async def get_saved_variables(
-    user_id: PydanticObjectId, request: Request, response: Response
-) -> dict[str, Any]:
-    user: User | None = await User.find_one(User.id == user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return user.saved_variables
-
-
-@router.put(
-    "/{user_id}/saved_variables",
-    response_model=User,
-    responses=common_responses,
-)
-@limiter.limit("5/minute")
-async def update_saved_variables(
-    user_id: PydanticObjectId,
-    saved_variables: dict[str, str],
-    request: Request,
-    response: Response,
-    authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
-) -> User | JSONResponse:
-    if (
-        not authorized_user.is_email_verified
-        and not authorized_user.role == UserRole.ADMIN
-        and not authorized_user.role == UserRole.GOD
-    ):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    validate_saved_variables_count(len(saved_variables))
-
-    for key, value in saved_variables.items():
-        validate_variable_name(key)
-        validate_variable_value(value)
-
-    errors = validate_user_variables(saved_variables)
-    if errors:
-        return JSONResponse(
-            status_code=422, content={"detail": "Validation failed", "errors": errors}
-        )
-
-    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
-        {"_id": user_id},
-        {"$set": {"saved_variables": saved_variables}},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not updated_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return updated_user
-
-
-@router.delete(
-    "/{user_id}/saved_variables",
-    response_model=User,
-    responses=common_responses,
-    dependencies=[Depends(authorize_user_or_god)],
-)
-@limiter.limit("5/minute")
-async def delete_saved_variables(
-    user_id: PydanticObjectId,
-    request: Request,
-    response: Response,
-) -> User:
-    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
-        {"_id": user_id},
-        {"$set": {"saved_variables": {}}},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not updated_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return updated_user
-
-
-@router.delete(
-    "/{user_id}/saved_variables/{variable}",
-    response_model=User,
-    responses=common_responses,
-)
-@limiter.limit("5/minute")
-async def delete_saved_variable(
-    user_id: PydanticObjectId,
-    variable: str,
-    request: Request,
-    response: Response,
-    authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
-) -> User:
-    validate_variable_name(variable)
-    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
-        {"_id": user_id},
-        {"$unset": {f"saved_variables.{variable}": ""}},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not updated_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return updated_user
-
-
-@router.patch(
-    "/{user_id}/saved_variables/{variable}",
-    response_model=User,
-    responses=common_responses,
-)
-@limiter.limit("5/minute")
-async def update_saved_variable(
-    user_id: PydanticObjectId,
-    variable: str,
-    value: str,
-    request: Request,
-    response: Response,
-    authorized_user: AuthorizedUser = Depends(authorize_user_or_god),
-) -> User:
-    if (
-        not authorized_user.is_email_verified
-        and not authorized_user.role == UserRole.ADMIN
-        and not authorized_user.role == UserRole.GOD
-    ):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    validate_variable_name(variable)
-    validate_variable_value(value)
-
-    error = validate_user_variable(variable, value)
-    if error:
-        raise HTTPException(
-            status_code=422,
-            detail=error,
-        )
-
-    updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
-        {
-            "_id": user_id,
-            "$expr": {
-                "$or": [
-                    {
-                        "$lt": [
-                            {"$size": {"$objectToArray": "$saved_variables"}},
-                            settings.MAX_SAVED_VARIABLES,
-                        ]
-                    },
-                    {
-                        "$in": [
-                            variable,
-                            {
-                                "$map": {
-                                    "input": {"$objectToArray": "$saved_variables"},
-                                    "as": "kv",
-                                    "in": "$$kv.k",
-                                }
-                            },
-                        ]
-                    },
-                ]
-            },
-        },
-        {"$set": {f"saved_variables.{variable}": value}},
-        return_document=ReturnDocument.AFTER,
-    )
-
-    if updated_user:
-        return updated_user
-
-    existing_user: User | None = await User.get_pymongo_collection().find_one(
-        {"_id": user_id},
-        {"_id": 1},
-    )
-    if not existing_user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    raise HTTPException(
-        status_code=422,
-        detail=f"Cannot store more than {settings.MAX_SAVED_VARIABLES} variables",
-    )
 
 
 @router.post(

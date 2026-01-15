@@ -1,71 +1,90 @@
-from abc import ABC, abstractmethod
-from typing import Any, Literal
-from pydantic import BaseModel
+from typing import Any
+from datetime import datetime
+import jsonschema
+from pydantic import BaseModel, Field, field_validator
+from beanie import PydanticObjectId
 
-from app.enums import ValidationType
-from app.schemas.validation import ValidationRule
 from app.settings import settings
 
 
-class BaseVariable(BaseModel, ABC):
+class VariableCreate(BaseModel):
+    variable: str = Field(..., description="Variable name")
+    allow_save: bool = Field(
+        default=False, description="Allow users to save this variable"
+    )
+    scope: str | None = Field(
+        None, description="Scope (folder/document ID) or None for global"
+    )
+    required: bool = Field(default=True, description="Is this variable required")
+    schema: dict[str, Any] | None = Field(
+        None, description="JSON Schema for validation"
+    )
+    value: dict[str, Any] | None = Field(
+        None, description="Constant value (if not user input)"
+    )
+
+    @field_validator("variable")
+    def validate_variable_name(cls: "VariableCreate", v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Variable name cannot be empty")
+
+        if len(v) > settings.MAX_VARIABLE_NAME:
+            raise ValueError(
+                f"Variable name cannot exceed {settings.MAX_VARIABLE_NAME} characters"
+            )
+
+        return v.strip()
+
+    @field_validator("schema")
+    def validate_variable_schema(
+        cls: "VariableCreate", v: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        if not v:
+            return None
+
+        try:
+            jsonschema.Draft202012Validator.check_schema(v)
+        except jsonschema.SchemaError as e:
+            raise ValueError(f"Variable schema error: {e}")
+
+        return v
+
+
+class VariableResponse(BaseModel):
+    id: PydanticObjectId
     variable: str
-    name: str
-    nullable: bool
     allow_save: bool
-    type: ValidationType
+    scope: str | None
+    required: bool
+    created_by: PydanticObjectId | None
+    updated_by: PydanticObjectId | None
+    schema: dict[str, Any] | None
+    value: Any
+    created_at: datetime
+    updated_at: datetime
+    overrides: list[dict[str, Any]] = Field(
+        default_factory=list, description="List of variables overridden by this one"
+    )
 
-    @abstractmethod
-    def get_preivew(self) -> str | list[Any]:
-        pass
-
-
-class PlainVariable(BaseVariable):
-    type: Literal[ValidationType.PLAIN] = ValidationType.PLAIN
-    validation_rules: list[ValidationRule] = []
-    example: str | None = None
-
-    def get_preivew(self) -> str:
-        return self.example or settings.DEFAULT_VARIABLE_VALUE
-
-
-class MultichoiceVariable(BaseVariable):
-    type: Literal[ValidationType.MULTICHOICE] = ValidationType.MULTICHOICE
-    choices: list[str]
-
-    def get_preivew(self) -> str:
-        return self.choices[0] if self.choices else settings.DEFAULT_VARIABLE_VALUE
+    class Config:
+        from_attributes = True
 
 
-class ConstantVariable(BaseVariable):
-    type: Literal[ValidationType.CONSTANT] = ValidationType.CONSTANT
-    value: str
-
-    def get_preivew(self) -> str:
-        return self.value
+class VariableValidateRequest(BaseModel):
+    value: Any = Field(..., description="Value to validate against variable schema")
 
 
-class RowVariable(BaseVariable):
-    type: Literal[ValidationType.ROW] = ValidationType.ROW
-    variable_names: list[str]
-    variables: list["Variable"]
-    allow_save: Literal[False] = False
-
-    def get_preivew(self) -> list[Any]:
-        return [var.get_preivew() for var in self.variables]
+class VariableSaveRequest(BaseModel):
+    value: Any = Field(..., description="Value to save for this variable")
 
 
-class LoopVariable(BaseVariable):
-    type: Literal[ValidationType.LOOP] = ValidationType.LOOP
-    variable_names: list[str]
-    variables: list["Variable"]
-    allow_save: Literal[False] = False
+class SavedVariableResponse(BaseModel):
+    id: PydanticObjectId
+    user: PydanticObjectId
+    variable: PydanticObjectId
+    value: Any
+    created_at: datetime
+    updated_at: datetime
 
-    def get_preivew(self) -> list[Any]:
-        return [var.get_preivew() for var in self.variables]
-
-
-type Variable = PlainVariable | MultichoiceVariable | ConstantVariable | RowVariable | LoopVariable
-
-
-class VariablesResponse(BaseModel):
-    variables: list[Variable]
+    class Config:
+        from_attributes = True

@@ -9,7 +9,7 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
-from app.db.database import Feedback
+from app.models import Feedback
 from app.settings import settings
 
 from bot.handlers.user.invalid_input import invalid_input_handler

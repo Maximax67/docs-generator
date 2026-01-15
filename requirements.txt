@@ -1,5 +1,6 @@
 aiogram
 beanie
+cachetools
 docxtpl
 fastapi
 google_api_python_client
@@ -18,4 +19,4 @@ email-validator
 httpx
 user_agents
 regex
-jsonschema[format-nongpl]
+jsonschema[format]
