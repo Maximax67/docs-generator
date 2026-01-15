@@ -16,7 +16,7 @@ class VariableCreate(BaseModel):
         None, description="Scope (folder/document ID) or None for global"
     )
     required: bool = Field(default=True, description="Is this variable required")
-    schema: dict[str, Any] | None = Field(
+    validation_schema: dict[str, Any] | None = Field(
         None, description="JSON Schema for validation"
     )
     value: dict[str, Any] | None = Field(
@@ -35,7 +35,7 @@ class VariableCreate(BaseModel):
 
         return v.strip()
 
-    @field_validator("schema")
+    @field_validator("validation_schema")
     def validate_variable_schema(
         cls: "VariableCreate", v: dict[str, Any] | None
     ) -> dict[str, Any] | None:
@@ -58,7 +58,7 @@ class VariableResponse(BaseModel):
     required: bool
     created_by: PydanticObjectId | None
     updated_by: PydanticObjectId | None
-    schema: dict[str, Any] | None
+    validation_schema: dict[str, Any] | None
     value: Any
     created_at: datetime
     updated_at: datetime
@@ -71,7 +71,9 @@ class VariableResponse(BaseModel):
 
 
 class VariableValidateRequest(BaseModel):
-    value: Any = Field(..., description="Value to validate against variable schema")
+    value: Any = Field(
+        ..., description="Value to validate against variable validation schema"
+    )
 
 
 class VariableSaveRequest(BaseModel):

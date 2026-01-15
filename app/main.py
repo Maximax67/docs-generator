@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
 from beanie import init_beanie
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 # from fastapi.staticfiles import StaticFiles
 from jinja2 import TemplateError
@@ -10,7 +10,7 @@ from pymongo import AsyncMongoClient
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.exceptions import document_validation_exception_handler, exception_handler
+from app.exceptions import document_validation_exception_handler
 from app.limiter import limiter
 from app.routes import api
 from app.settings import settings
@@ -24,11 +24,6 @@ from app.models import (
     SavedVariable,
 )
 from app.utils.cleanup import periodic_cleanup
-
-# from bot.bot import bot
-# from bot.utils.notify_admins import notify_admins
-# from bot.utils.set_bot_commands import set_bot_commands
-# from bot.utils.set_webhook import set_telegram_webhook
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -47,13 +42,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             SavedVariable,
         ],
     )
-    # await set_telegram_webhook(bot)
-    # await set_bot_commands(bot)
 
     cleanup_task = asyncio.create_task(periodic_cleanup())
-
-    # if settings.ADMIN_GREETING_ENABLED:
-    #    await notify_admins(bot)
 
     yield
 
@@ -62,13 +52,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await cleanup_task
     except asyncio.CancelledError:
         pass
-
-    # await bot.session.close()
-
-
-async def async_exception_handler(request: Request, exc: Exception) -> Response:
-    return Response(status_code=500)
-    #return await exception_handler(request, exc, bot)
 
 
 origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS else []
@@ -97,7 +80,6 @@ app.add_middleware(
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 app.add_exception_handler(TemplateError, document_validation_exception_handler)
-app.add_exception_handler(Exception, async_exception_handler)
 
 app.include_router(api.router)
 # app.mount("/", StaticFiles(directory="/app/static", html=True))

@@ -14,7 +14,7 @@ class Variable(TimestampMixin):
     required: bool
     created_by: Link[User] | None = None
     updated_by: Link[User] | None = None
-    schema: dict[str, Any] | None = None
+    validation_schema: dict[str, Any] | None = None
     value: dict[str, Any] | None = None
 
     class Settings:

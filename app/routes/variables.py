@@ -2,7 +2,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from beanie import Link, PydanticObjectId, SortDirection
-from beanie.operators import In, RegEx
+from beanie.operators import In, RegEx, Eq
 import jsonschema
 from jsonschema import ValidationError as JsonSchemaValidationError
 
@@ -67,7 +67,7 @@ async def get_variables(
 
     if scope is not None:
         if scope.lower() == "null":
-            query_filters.append(Variable.scope == None)
+            query_filters.append(Eq(Variable.scope, None))
         else:
             # Get scope chain for hierarchical filtering
             try:
@@ -322,12 +322,12 @@ async def validate_variable_value(
     if variable.value is not None:
         raise HTTPException(status_code=400, detail="Cannot validate constant variable")
 
-    if not variable.schema:
+    if not variable.validation_schema:
         raise HTTPException(status_code=400, detail="Variable has no validation schema")
 
     # Validate value against schema
     try:
-        jsonschema.validate(instance=body.value, schema=variable.schema)
+        jsonschema.validate(instance=body.value, schema=variable.validation_schema)
         return DetailResponse(detail="Validation successful")
     except JsonSchemaValidationError as e:
         return JSONResponse(
@@ -378,9 +378,9 @@ async def save_variable_value(
         raise HTTPException(status_code=400, detail="Cannot save constant variable")
 
     # Validate value against schema if schema exists
-    if variable.schema:
+    if variable.validation_schema:
         try:
-            jsonschema.validate(instance=body.value, schema=variable.schema)
+            jsonschema.validate(instance=body.value, schema=variable.validation_schema)
         except JsonSchemaValidationError as e:
             raise HTTPException(
                 status_code=400, detail=f"Validation error: {e.message}"

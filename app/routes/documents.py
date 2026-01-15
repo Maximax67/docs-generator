@@ -13,7 +13,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from app.dependencies import authorize_user_or_admin
+from app.dependencies import get_authorized_user_optional
 from app.models import Result, User
 from app.schemas.google import DriveFile, DriveFileListResponse
 from app.schemas.documents import (
@@ -21,11 +21,12 @@ from app.schemas.documents import (
     DocumentVariables,
     GenerateDocumentRequest,
     ValidationErrorsResponse,
+    DocumentVariable,
 )
 from app.services.documents import (
-    generate_preview,
+    download_template_as_format,
     get_all_documents,
-    get_validated_document_variables,
+    get_document_variables_info,
     generate_document,
     resolve_format,
     validate_document_generation_request,
@@ -39,8 +40,9 @@ from app.services.google_drive import (
 )
 from app.exceptions import ValidationErrorsException
 from app.limiter import limiter
-from beanie import Link, PydanticObjectId
+from beanie import Link
 from app.enums import FORMAT_TO_MIME, DocumentResponseFormat
+from app.schemas.auth import AuthorizedUser
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -71,12 +73,10 @@ common_responses_with_validation: dict[int | str, dict[str, Any]] = {
             "application/json": {
                 "example": {
                     "errors": {
-                        "pi": "Cannot set constant variable",
-                        "surname": "Missing required variable",
-                        "gender": "Value must be one of the allowed choices",
-                        "phone": "Regex evaluation failed",
-                    },
-                    "is_valid": False,
+                        "company_name": "Cannot override constant variable",
+                        "employee_name": "Missing required variable",
+                        "email": "Validation error: 'invalid' is not of type 'string'",
+                    }
                 }
             }
         },
@@ -97,7 +97,10 @@ async def get_documents(request: Request, response: Response) -> DriveFileListRe
 )
 @limiter.limit("5/minute")
 async def get_document(
-    document_id: str, request: Request, response: Response
+    document_id: str,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> DocumentDetails:
     try:
         file_metadata = get_drive_item_metadata(document_id)
@@ -109,12 +112,34 @@ async def get_document(
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
-    variables, unknown_variables = get_validated_document_variables(file)
-    is_valid = len(unknown_variables) == 0
+    user_id = authorized_user.user_id if authorized_user else None
+    template_variables, variables_info = await get_document_variables_info(
+        file, user_id
+    )
+
+    # Convert to response format
+    variables_list = []
+    for var_name in template_variables:
+        var_info = variables_info.get(var_name, {})
+        variables_list.append(
+            DocumentVariable(
+                variable=var_name,
+                in_database=var_info.get("in_database", False),
+                value=var_info.get("value"),
+                validation_schema=var_info.get("validation_schema"),
+                required=var_info.get("required", False),
+                allow_save=var_info.get("allow_save", False),
+                scope=var_info.get("scope"),
+                saved_value=var_info.get("saved_value"),
+            )
+        )
 
     return DocumentDetails(
         file=file,
-        variables=variables,
+        variables=DocumentVariables(
+            template_variables=list(template_variables),
+            variables=variables_list,
+        ),
     )
 
 
@@ -147,7 +172,10 @@ async def get_document_file(
 )
 @limiter.limit("5/minute")
 async def get_variables_for_document(
-    document_id: str, request: Request, response: Response
+    document_id: str,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> DocumentVariables:
     try:
         file_metadata = get_drive_item_metadata(document_id)
@@ -159,11 +187,31 @@ async def get_variables_for_document(
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
-    variables, unknown_variables = get_validated_document_variables(file)
-    is_valid = len(unknown_variables) == 0
+    user_id = authorized_user.user_id if authorized_user else None
+    template_variables, variables_info = await get_document_variables_info(
+        file, user_id
+    )
+
+    # Convert to response format
+    variables_list = []
+    for var_name in template_variables:
+        var_info = variables_info.get(var_name, {})
+        variables_list.append(
+            DocumentVariable(
+                variable=var_name,
+                in_database=var_info.get("in_database", False),
+                value=var_info.get("value"),
+                validation_schema=var_info.get("validation_schema"),
+                required=var_info.get("required", False),
+                allow_save=var_info.get("allow_save", False),
+                scope=var_info.get("scope"),
+                saved_value=var_info.get("saved_value"),
+            )
+        )
 
     return DocumentVariables(
-        variables=variables, unknown_variables=unknown_variables, is_valid=is_valid
+        template_variables=list(template_variables),
+        variables=variables_list,
     )
 
 
@@ -210,11 +258,10 @@ async def get_raw_document(
     responses={
         **common_responses,
         200: {
-            "description": "Returns preview PDF file",
+            "description": "Returns template preview (PDF or DOCX) without filled variables",
             "content": {
                 "application/pdf": {},
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
-                "application/json": None,
             },
         },
     },
@@ -240,12 +287,12 @@ async def preview_document(
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
-    file_path, _ = generate_preview(file, format)
+    file_path = download_template_as_format(file, format)
     background_tasks.add_task(os.remove, file_path)
 
     return FileResponse(
         path=file_path,
-        filename=f"{document_id}.{format.value}",
+        filename=f"{document_id}_template.{format.value}",
         media_type=FORMAT_TO_MIME[format],
     )
 
@@ -274,6 +321,7 @@ async def validate_provided_variables_for_document(
     body: GenerateDocumentRequest,
     request: Request,
     response: Response,
+    authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> ValidationErrorsResponse | JSONResponse:
     validate_document_generation_request(body.variables)
 
@@ -287,8 +335,12 @@ async def validate_provided_variables_for_document(
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
+    user_id = authorized_user.user_id if authorized_user else None
+
     try:
-        validate_variables_for_document(file, body.variables)
+        await validate_variables_for_document(
+            file, body.variables, user_id, body.bypass_validation
+        )
     except ValidationErrorsException as e:
         return JSONResponse(
             status_code=400, content={"is_valid": False, "errors": e.errors}
@@ -307,7 +359,6 @@ async def validate_provided_variables_for_document(
             "content": {
                 "application/pdf": {},
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
-                "application/json": None,
             },
         },
     },
@@ -321,7 +372,18 @@ async def generate_document_with_variables(
     response: Response,
     format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
     accept: str | None = Header(None),
+    authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> JSONResponse | FileResponse:
+    """
+    Generate document with user-provided variables.
+
+    Variable resolution priority:
+    1. Constants from database (cannot be overridden)
+    2. User-provided values (validated against schema if configured)
+    3. User's saved values (if authenticated)
+
+    If bypass_validation=true, skips all validation and uses user values as-is.
+    """
     format = resolve_format(accept, format)
     validate_document_generation_request(body.variables)
 
@@ -335,99 +397,33 @@ async def generate_document_with_variables(
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
-    try:
-        file_path, context = generate_document(file, body.variables, format=format)
-    except ValidationErrorsException as e:
-        return JSONResponse(status_code=400, content={"errors": e.errors})
-
-    background_tasks.add_task(os.remove, file_path)
-
-    if file.mime_type == "application/vnd.google-apps.document":
-        filename = file.name
-    else:
-        filename, _ = os.path.splitext(file.name)
-
-    await Result(
-        template_id=document_id,
-        template_name=filename,
-        variables=context,
-        format=format,
-    ).insert()
-
-    return FileResponse(
-        path=file_path,
-        filename=f"{document_id}.{format.value}",
-        media_type=FORMAT_TO_MIME[format],
-    )
-
-
-@router.post(
-    "/{document_id}/generate/{user_id}",
-    dependencies=[Depends(authorize_user_or_admin)],
-    response_model=None,
-    responses={
-        **common_responses_with_validation,
-        200: {
-            "description": "Returns generated file",
-            "content": {
-                "application/pdf": {},
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
-                "application/json": None,
-            },
-        },
-        403: {
-            "description": "Forbidden",
-            "content": {"application/json": {"example": {"detail": "Invalid token"}}},
-        },
-    },
-)
-@limiter.limit("5/minute")
-async def generate_document_with_variables_for_user(
-    document_id: str,
-    user_id: PydanticObjectId,
-    body: GenerateDocumentRequest,
-    background_tasks: BackgroundTasks,
-    request: Request,
-    response: Response,
-    format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
-    accept: str | None = Header(None),
-) -> JSONResponse | FileResponse:
-    format = resolve_format(accept, format)
-    validate_document_generation_request(body.variables)
+    user_id = authorized_user.user_id if authorized_user else None
 
     try:
-        file_metadata = get_drive_item_metadata(document_id)
-    except Exception:
-        raise HTTPException(
-            status_code=404, detail="Document not found or access denied"
+        file_path, context = await generate_document(
+            file, body.variables, user_id, body.bypass_validation, format
         )
-
-    file = format_drive_file_metadata(file_metadata)
-    validate_document_mime_type(file.mime_type)
-
-    try:
-        file_path, context = generate_document(file, body.variables, format=format)
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
 
     background_tasks.add_task(os.remove, file_path)
-
-    user_exists = await User.find_one(User.id == user_id)
-    if not user_exists:
-        raise HTTPException(status_code=404, detail="User not found")
 
     if file.mime_type == "application/vnd.google-apps.document":
         filename = file.name
     else:
         filename, _ = os.path.splitext(file.name)
 
-    await Result(
-        user=cast(Link[User], user_id),
-        template_id=document_id,
-        template_name=filename,
-        variables=context,
-        format=format,
-    ).insert()
+    result_data: dict[str, Any] = {
+        "template_id": document_id,
+        "template_name": filename,
+        "variables": context,
+        "format": format,
+    }
+
+    if authorized_user:
+        result_data["user"] = cast(Link[User], authorized_user.user_id)
+
+    await Result(**result_data).insert()
 
     return FileResponse(
         path=file_path,

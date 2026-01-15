@@ -12,7 +12,7 @@ from fastapi import (
 from beanie import Link, PydanticObjectId, SortDirection
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.enums import DocumentResponseFormat, UserRole
+from app.enums import DocumentResponseFormat, UserRole, FORMAT_TO_MIME
 from app.limiter import limiter
 from app.schemas.common_responses import DetailResponse, PaginationMeta
 from app.services.google_drive import (
@@ -25,6 +25,7 @@ from app.services.documents import (
     validate_document_mime_type,
 )
 from app.schemas.auth import AuthorizedUser
+from app.schemas.documents import GenerateDocumentRequest
 from app.models import Result, User
 from app.schemas.common_responses import Paginated
 from app.dependencies import get_authorized_user, authorize_user_or_admin_query
@@ -159,16 +160,25 @@ async def get_result_document_by_id(
 
 @router.post(
     "/{result_id}/regenerate",
-    response_model=Result,
-    responses=common_responses,
+    response_model=None,
+    responses={
+        **common_responses,
+        200: {
+            "description": "Returns regenerated file",
+            "content": {
+                "application/pdf": {},
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+            },
+        },
+    },
 )
 @limiter.limit("5/minute")
 async def regenerate_result_by_id(
     result_id: PydanticObjectId,
+    body: GenerateDocumentRequest,
     background_tasks: BackgroundTasks,
     request: Request,
     response: Response,
-    old_constants: bool = Query(False),
     format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
     authorized_user: AuthorizedUser = Depends(get_authorized_user),
 ) -> FileResponse | JSONResponse:
@@ -189,7 +199,9 @@ async def regenerate_result_by_id(
     elif authorized_user.role == UserRole.USER:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    validate_document_generation_request(result.variables)
+    # Use provided variables or fall back to original variables
+    variables_to_use = body.variables if body.variables else result.variables
+    validate_document_generation_request(variables_to_use)
 
     try:
         file_metadata = get_drive_item_metadata(result.template_id)
@@ -201,9 +213,11 @@ async def regenerate_result_by_id(
     file = format_drive_file_metadata(file_metadata)
     validate_document_mime_type(file.mime_type)
 
+    user_id = authorized_user.user_id if authorized_user else None
+
     try:
-        file_path, context = generate_document(
-            file, result.variables, not old_constants, format
+        file_path, context = await generate_document(
+            file, variables_to_use, user_id, body.bypass_validation, format
         )
     except ValidationErrorsException as e:
         return JSONResponse(status_code=400, content={"errors": e.errors})
@@ -215,18 +229,22 @@ async def regenerate_result_by_id(
     else:
         filename, _ = os.path.splitext(file.name)
 
-    await Result(
-        template_id=result.template_id,
-        template_name=filename,
-        variables=context,
-        user=cast(Link[User], authorized_user.user_id),
-        format=format,
-    ).insert()
+    new_result_data: dict[str, Any] = {
+        "template_id": result.template_id,
+        "template_name": filename,
+        "variables": context,
+        "format": format,
+    }
+
+    if user:
+        new_result_data["user"] = cast(Link[User], authorized_user.user_id)
+
+    await Result(**new_result_data).insert()
 
     return FileResponse(
         path=file_path,
-        filename=f"{result.template_id}.pdf",
-        media_type="application/pdf",
+        filename=f"{result.template_id}.{format.value}",
+        media_type=FORMAT_TO_MIME[format],
     )
 
 

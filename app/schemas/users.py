@@ -1,7 +1,6 @@
 from typing import Annotated
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.models import User
 from app.enums import UserRole
 from app.constants import NAME_REGEX
 
@@ -19,7 +18,6 @@ class UserUpdateRequest(BaseModel):
         Annotated[str, Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_]+$")]
         | None
     ) = None
-    saved_variables: dict[str, str] | None = None
     is_banned: bool | None = None
     role: UserRole | None = None
 
@@ -33,7 +31,3 @@ class UserUpdateRequest(BaseModel):
             raise ValueError("Invalid format")
 
         return v
-
-
-class AllUsersResponse(BaseModel):
-    users: list[User]

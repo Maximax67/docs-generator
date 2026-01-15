@@ -52,6 +52,13 @@ def get_authorized_user(request: Request) -> AuthorizedUser:
     )
 
 
+def get_authorized_user_optional(request: Request) -> AuthorizedUser | None:
+    try:
+        return get_authorized_user(request)
+    except HTTPException:
+        return None
+
+
 async def get_current_user(request: Request) -> User:
     authorized_user = get_authorized_user(request)
 

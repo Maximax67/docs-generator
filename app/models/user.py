@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated
 from beanie import Indexed
 from pydantic import Field
 
@@ -14,7 +14,6 @@ class User(TimestampMixin):
     last_name: str | None = None
 
     telegram_username: str | None = None
-    saved_variables: dict[str, Any] = {}
     is_banned: bool = False
 
     password_hash: str | None = Field(default=None, exclude=True)

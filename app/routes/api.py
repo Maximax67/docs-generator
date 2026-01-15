@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, Response
 
 from app.settings import settings
 from app.schemas.common_responses import DetailResponse
-from app.routes import auth, documents, folders, telegram, users, generations, variables
+from app.routes import auth, documents, folders, users, generations, variables
 from app.limiter import limiter
 
 
@@ -26,7 +26,6 @@ def health_check(request: Request, response: Response) -> DetailResponse:
     return DetailResponse(detail="ok")
 
 
-router.include_router(telegram.router)
 router.include_router(auth.router)
 router.include_router(users.router)
 router.include_router(folders.router)

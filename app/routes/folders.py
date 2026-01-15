@@ -5,6 +5,7 @@ from app.constants import DOC_COMPATIBLE_MIME_TYPES
 from app.dependencies import require_admin
 from app.schemas.common_responses import DetailResponse
 from app.services.google_drive import (
+    ensure_folder,
     format_drive_file_metadata,
     format_drive_folder_metadata,
     get_accessible_files_and_folders,
@@ -12,7 +13,6 @@ from app.services.google_drive import (
     get_accessible_folders,
     get_drive_item_metadata,
 )
-from app.services.documents import ensure_folder
 from app.schemas.google import (
     FolderContents,
     FolderListResponse,

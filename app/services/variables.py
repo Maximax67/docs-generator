@@ -1,75 +1,118 @@
+"""
+services/variables.py - Updated variable resolution for document generation
+"""
+
 from typing import Any
 from beanie import PydanticObjectId
-from beanie.operators import In
+from beanie.operators import In, Eq
 import jsonschema
 from jsonschema import ValidationError as JsonSchemaValidationError
 
-from app.models import Variable
+from app.models import Variable, SavedVariable
 from app.services.google_drive import get_item_path
 from app.exceptions import ValidationErrorsException
 
 
-async def get_effective_variables(
-    scope_id: str | None = None, user_id: PydanticObjectId | None = None
+async def get_effective_variables_for_document(
+    document_id: str,
+    template_variables: set[str],
+    user_id: PydanticObjectId | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
-    Get all effective variables for a given scope, respecting hierarchy.
+    Get effective variables for a document based on template variables and database config.
 
-    Returns a dict where keys are variable names and values contain:
-    - value: The actual value (constant or None)
-    - schema: Validation schema (if applicable)
+    Returns dict where keys are variable names and values contain:
+    - in_database: Whether this variable is configured in database
+    - value: Constant value (if set) or None
+    - validation_schema: Validation schema (if set) or None
     - required: Whether the variable is required
     - allow_save: Whether users can save this variable
     - scope: The effective scope this variable comes from
-    - saved_value: User's saved value (if user_id provided and variable has saved value)
+    - saved_value: User's saved value (if user_id provided)
     """
-    # Get scope chain
-    if scope_id:
-        scope_chain = get_item_path(scope_id)
-    else:
-        scope_chain = None
+    # Get scope chain for the document
+    try:
+        scope_chain = get_item_path(document_id)
+    except Exception:
+        scope_chain = []
 
-    # Get all variables in the scope chain
-    variables = await Variable.find(In(Variable.scope, scope_chain)).to_list()
+    # Fetch all variables from database that might apply to this document
+    from beanie.operators import In
+
+    if scope_chain:
+        db_variables = await Variable.find(
+            In(Variable.scope, scope_chain + [None])
+        ).to_list()
+    else:
+        db_variables = await Variable.find(Eq(Variable.scope, None)).to_list()
 
     # Organize by name, keeping most specific scope
-    effective_vars: dict[str, Variable] = {}
+    effective_db_vars: dict[str, Variable] = {}
 
-    for var in variables:
-        if var.variable not in effective_vars:
-            effective_vars[var.variable] = var
-        else:
-            # Check if this variable is more specific
-            current_priority = get_scope_priority(
-                effective_vars[var.variable].scope, scope_chain
-            )
-            new_priority = get_scope_priority(var.scope, scope_chain)
+    for var in db_variables:
+        if var.variable in template_variables:
+            if var.variable not in effective_db_vars:
+                effective_db_vars[var.variable] = var
+            else:
+                # Check if this variable is more specific
+                current_priority = get_scope_priority(
+                    effective_db_vars[var.variable].scope, scope_chain
+                )
+                new_priority = get_scope_priority(var.scope, scope_chain)
 
-            if new_priority < current_priority:
-                effective_vars[var.variable] = var
+                if new_priority < current_priority:
+                    effective_db_vars[var.variable] = var
 
-    # Build result
+    # Get user's saved variables if user_id provided
+    saved_values: dict[str, Any] = {}
+    if user_id:
+        saved_vars = await SavedVariable.find(
+            SavedVariable.user.id  # pyright: ignore[reportAttributeAccessIssue]
+            == user_id
+        ).to_list()
+
+        for saved in saved_vars:
+            # Get the variable name from the linked Variable
+            var_obj = await Variable.get(saved.variable.ref.id)  # pyright: ignore
+            if var_obj and var_obj.variable in template_variables:
+                saved_values[var_obj.variable] = saved.value
+
+    # Build result for all template variables
     result: dict[str, dict[str, Any]] = {}
-    for name, var in effective_vars.items():
-        var_id = str(var.id)
-        result[name] = {
-            "id": var_id,
-            "value": var.value,
-            "schema": var.schema,
-            "required": var.required,
-            "allow_save": var.allow_save,
-            "scope": var.scope,
-        }
+
+    for var_name in template_variables:
+        if var_name in effective_db_vars:
+            var = effective_db_vars[var_name]
+            result[var_name] = {
+                "in_database": True,
+                "value": var.value,
+                "validation_schema": var.validation_schema,
+                "required": var.required,
+                "allow_save": var.allow_save,
+                "scope": var.scope,
+                "saved_value": saved_values.get(var_name),
+            }
+        else:
+            # Variable not in database, accept any user input
+            result[var_name] = {
+                "in_database": False,
+                "value": None,
+                "validation_schema": None,
+                "required": False,
+                "allow_save": False,
+                "scope": None,
+                "saved_value": None,
+            }
 
     return result
 
 
-def get_scope_priority(scope: str | None, scope_chain: list[str] | None) -> int:
+def get_scope_priority(scope: str | None, scope_chain: list[str]) -> int:
     """
     Get priority of a scope in the chain.
     Lower number = more specific (higher priority).
     """
-    if scope_chain is None:
+    if not scope_chain:
         return 1
 
     if scope is None:
@@ -81,30 +124,53 @@ def get_scope_priority(scope: str | None, scope_chain: list[str] | None) -> int:
         return len(scope_chain) + 1
 
 
-async def resolve_document_variables(
+async def resolve_variables_for_generation(
     document_id: str,
+    template_variables: set[str],
     user_provided_values: dict[str, Any],
     user_id: PydanticObjectId | None = None,
+    bypass_validation: bool = False,
 ) -> dict[str, Any]:
     """
-    Resolve all variables for a document, combining:
-    1. Constants (from Variable.value)
-    2. User's saved values (from SavedVariable)
-    3. User-provided values (from request)
+    Resolve all variables for document generation.
 
-    Validates all values and returns final context for document generation.
+    Combines:
+    1. Constants from database (Variable.value)
+    2. User-provided values (from request)
+    3. User's saved values (from SavedVariable)
+
+    Validates according to rules:
+    - If variable not in database: accept user input as-is
+    - If variable in database with constant: use constant, reject user override
+    - If variable in database, required, no user input: reject
+    - If variable in database with schema: validate user input
+
+    If bypass_validation=True, skip all validation and use user values as-is.
 
     Raises ValidationErrorsException if validation fails.
     """
-    effective_vars = await get_effective_variables(document_id, user_id)
+    if bypass_validation:
+        # Bypass all validation, return user values as-is
+        return user_provided_values
+
+    # Get effective variables configuration
+    effective_vars = await get_effective_variables_for_document(
+        document_id, template_variables, user_id
+    )
 
     # Build final context
     context: dict[str, Any] = {}
     errors: dict[str, str] = {}
 
     for var_name, var_info in effective_vars.items():
-        # Priority: constant > user_provided > saved > error if required
+        if not var_info["in_database"]:
+            # Variable not in database, accept user input if provided
+            if var_name in user_provided_values:
+                context[var_name] = user_provided_values[var_name]
+            # If not provided, it's optional - don't add to context
+            continue
 
+        # Variable is in database
         if var_info["value"] is not None:
             # It's a constant
             context[var_name] = var_info["value"]
@@ -118,9 +184,11 @@ async def resolve_document_variables(
             value = user_provided_values[var_name]
 
             # Validate against schema if exists
-            if var_info["schema"]:
+            if var_info["validation_schema"]:
                 try:
-                    jsonschema.validate(instance=value, schema=var_info["schema"])
+                    jsonschema.validate(
+                        instance=value, schema=var_info["validation_schema"]
+                    )
                     context[var_name] = value
                 except JsonSchemaValidationError as e:
                     errors[var_name] = f"Validation error: {e.message}"
@@ -129,7 +197,19 @@ async def resolve_document_variables(
 
         elif var_info["saved_value"] is not None:
             # Use saved value
-            context[var_name] = var_info["saved_value"]
+            value = var_info["saved_value"]
+
+            # Validate saved value against schema if exists
+            if var_info["validation_schema"]:
+                try:
+                    jsonschema.validate(
+                        instance=value, schema=var_info["validation_schema"]
+                    )
+                    context[var_name] = value
+                except JsonSchemaValidationError as e:
+                    errors[var_name] = f"Saved value validation error: {e.message}"
+            else:
+                context[var_name] = value
 
         elif var_info["required"]:
             # Required but not provided
@@ -139,30 +219,6 @@ async def resolve_document_variables(
         raise ValidationErrorsException(errors)
 
     return context
-
-
-def validate_user_variable(variable_name: str, value: Any) -> str | None:
-    """
-    Validate a single user variable value.
-    Returns error message if invalid, None if valid.
-    """
-    # Add any custom validation logic here
-    return None
-
-
-def validate_user_variables(variables: dict[str, Any]) -> dict[str, str]:
-    """
-    Validate multiple user variables.
-    Returns dict of errors (empty if all valid).
-    """
-    errors: dict[str, str] = {}
-
-    for name, value in variables.items():
-        error = validate_user_variable(name, value)
-        if error:
-            errors[name] = error
-
-    return errors
 
 
 async def get_variable_overrides(
@@ -204,7 +260,7 @@ async def get_variable_overrides(
             "id": str(var.id),
             "scope": var.scope,
             "value": var.value,
-            "schema": var.schema,
+            "validation_schema": var.validation_schema,
         }
         for var in overridden
     ]

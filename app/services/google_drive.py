@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Hashable
 from cachetools import TTLCache, cached
+from fastapi import HTTPException
 from googleapiclient.discovery import build  # type: ignore[import-untyped]
 from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import-untyped]
 
@@ -15,7 +16,7 @@ from app.google_credentials import credentials
 
 drive_client = build("drive", "v3", credentials=credentials)
 
-folder_graph_cache = TTLCache(maxsize=1, ttl=60)
+folder_graph_cache: TTLCache[Hashable, dict[str, Any]] = TTLCache(maxsize=1, ttl=60)
 
 
 def get_results_by_query(
@@ -74,7 +75,7 @@ def get_accessible_documents() -> list[dict[str, Any]]:
 
 
 @cached(folder_graph_cache)
-def get_folder_graph():
+def get_folder_graph() -> dict[str, Any]:
     folders = get_accessible_folders()
 
     graph = {}
@@ -152,6 +153,14 @@ def get_item_path(item_id: str) -> list[str]:
     path.reverse()
 
     return path
+
+
+def ensure_folder(mime_type: str) -> None:
+    if mime_type != "application/vnd.google-apps.folder":
+        raise HTTPException(
+            status_code=400,
+            detail="The requested resource is not a folder",
+        )
 
 
 def download_file(

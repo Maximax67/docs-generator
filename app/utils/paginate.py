@@ -8,7 +8,7 @@ async def paginate(
     query: Any,
     page: int,
     page_size: int,
-):
+) -> tuple[list[Any], PaginationMeta]:
     if page < 1:
         page = 1
     if page_size < 1:

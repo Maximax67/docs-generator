@@ -1,15 +1,14 @@
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from beanie import PydanticObjectId
 
 from app.enums import UserRole
 from app.limiter import limiter
-from app.schemas.common_responses import DetailResponse
-from app.schemas.users import AllUsersResponse, UserUpdateRequest
+from app.schemas.common_responses import DetailResponse, Paginated
+from app.schemas.users import UserUpdateRequest
 from app.services.auth import clear_auth_cookies
-from app.services.documents import validate_saved_variables_count
 from app.services.users import update_user_bool_field
 from app.services.bloom_filter import bloom_filter
 from app.schemas.auth import AuthorizedUser
@@ -19,6 +18,7 @@ from app.dependencies import (
     require_admin,
     require_god,
 )
+from app.utils.paginate import paginate
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -41,15 +41,25 @@ common_responses: dict[int | str, dict[str, Any]] = {
 
 @router.get(
     "",
-    response_model=AllUsersResponse,
+    response_model=Paginated[User],
     responses={403: common_responses[403]},
     dependencies=[Depends(require_admin)],
 )
 @limiter.limit("10/minute")
-async def get_all_users(request: Request, response: Response) -> AllUsersResponse:
-    users = await User.find_all().to_list()
+async def get_all_users(
+    request: Request,
+    response: Response,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+) -> Paginated[User]:
+    query = User.find_all()
 
-    return AllUsersResponse(users=users)
+    users, meta = await paginate(query, page, page_size)
+
+    return Paginated(
+        data=users,
+        meta=meta,
+    )
 
 
 @router.post(
@@ -74,8 +84,6 @@ async def get_all_users(request: Request, response: Response) -> AllUsersRespons
 )
 @limiter.limit("5/minute")
 async def create_user(request: Request, response: Response, user: User) -> User:
-    validate_saved_variables_count(len(user.saved_variables))
-
     try:
         return await user.create()
     except DuplicateKeyError:
@@ -134,9 +142,6 @@ async def update_user(
 
     if authorized_user.role != UserRole.GOD and authorized_user.user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-
-    if user_update.saved_variables:
-        validate_saved_variables_count(len(user_update.saved_variables))
 
     updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"_id": user_id},
