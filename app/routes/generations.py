@@ -168,6 +168,7 @@ async def get_result_document_by_id(
             "content": {
                 "application/pdf": {},
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "application/json": None,
             },
         },
     },

@@ -1,26 +1,11 @@
 from beanie import PydanticObjectId
-from fastapi import HTTPException, Header, Query, Request, status
-from fastapi.security import HTTPBearer
+from fastapi import HTTPException, Query, Request
 
 from app.enums import TokenType, UserRole
 from app.models import User
 from app.services.auth import decode_jwt_token
 from app.settings import settings
 from app.schemas.auth import AuthorizedUser
-
-http_bearer = HTTPBearer()
-
-
-def verify_telegram_token(
-    x_telegram_token: str = Header(..., alias="X-Telegram-Bot-Api-Secret-Token")
-) -> str:
-    if x_telegram_token != settings.TELEGRAM_SECRET.get_secret_value():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid Telegram token",
-        )
-
-    return x_telegram_token
 
 
 def get_authorized_user(request: Request) -> AuthorizedUser:

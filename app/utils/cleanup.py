@@ -6,10 +6,10 @@ from app.models import Session
 
 
 async def cleanup_old_sessions() -> None:
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(
+    expire_date = datetime.now(timezone.utc) - timedelta(
         days=settings.REFRESH_TOKEN_EXPIRES_DAYS
     )
-    await Session.find(Session.updated_at < seven_days_ago).delete()
+    await Session.find(Session.updated_at < expire_date).delete()
 
 
 async def periodic_cleanup(interval_seconds: int = 3600) -> None:

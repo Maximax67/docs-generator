@@ -262,6 +262,7 @@ async def get_raw_document(
             "content": {
                 "application/pdf": {},
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "application/json": None,
             },
         },
     },
@@ -359,6 +360,7 @@ async def validate_provided_variables_for_document(
             "content": {
                 "application/pdf": {},
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "application/json": None,
             },
         },
     },

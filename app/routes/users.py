@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -45,14 +45,46 @@ common_responses: dict[int | str, dict[str, Any]] = {
     responses={403: common_responses[403]},
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def get_all_users(
     request: Request,
     response: Response,
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
+    q: str | None = Query(None, description="Search query for name or email"),
+    role: UserRole | None = Query(None, description="Filter by role"),
+    status: Literal["banned"] | Literal["active"] | None = Query(
+        None, description="Filter by status (active/banned)"
+    ),
 ) -> Paginated[User]:
     query = User.find_all()
+
+    # TODO: Replace to more efficient approach
+    if q:
+        terms = [term for term in q.strip().lower().split() if term]
+        query = query.find(
+            {
+                "$and": [
+                    {
+                        "$or": [
+                            {"first_name": {"$regex": term, "$options": "i"}},
+                            {"last_name": {"$regex": term, "$options": "i"}},
+                            {"email": {"$regex": term, "$options": "i"}},
+                        ]
+                    }
+                    for term in terms
+                ]
+            }
+        )
+
+    if role:
+        query = query.find({"role": role})
+
+    if status:
+        if status == "banned":
+            query = query.find({"is_banned": True})
+        elif status == "active":
+            query = query.find({"is_banned": False})
 
     users, meta = await paginate(query, page, page_size)
 
@@ -68,12 +100,10 @@ async def get_all_users(
     response_model=User,
     responses={
         409: {
-            "description": "User with this id or telegram id already exists",
+            "description": "User with this id already exists",
             "content": {
                 "application/json": {
-                    "example": {
-                        "detail": "User with this id or telegram id already exists"
-                    }
+                    "example": {"detail": "User with this id already exists"}
                 }
             },
         },
@@ -89,7 +119,7 @@ async def create_user(request: Request, response: Response, user: User) -> User:
     except DuplicateKeyError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="User with this id or telegram id already exists",
+            detail="User with this id or already exists",
         )
 
 
@@ -134,8 +164,6 @@ async def update_user(
             for field in (
                 user_update.email,
                 user_update.is_banned,
-                user_update.telegram_id,
-                user_update.telegram_username,
             )
         ):
             raise HTTPException(status_code=403, detail="Forbidden")
