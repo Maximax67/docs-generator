@@ -1,2 +1,6 @@
 ruff
 mypy
+types-regex
+types-cachetools
+types-passlib
+types-jsonschema
