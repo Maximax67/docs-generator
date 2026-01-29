@@ -50,6 +50,32 @@ class VariableCreate(BaseModel):
         return v
 
 
+class VariableSchemaUpdate(BaseModel):
+    scope: str | None = Field(
+        default=None, description="Scope (folder/document ID) or None for global"
+    )
+    validation_schema: dict[str, Any] = Field(
+        ..., description="JSON Schema object with variable definitions"
+    )
+
+    @field_validator("validation_schema")
+    def validate_schema(
+        cls: "VariableSchemaUpdate", v: dict[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            jsonschema.Draft202012Validator.check_schema(v)
+        except jsonschema.SchemaError as e:
+            raise ValueError(f"Invalid JSON schema: {e}")
+
+        if v.get("type") != "object":
+            raise ValueError("Root schema must be of type 'object'")
+
+        if not v.get("properties"):
+            raise ValueError("Schema must have at least one property")
+
+        return v
+
+
 class VariableResponse(BaseModel):
     id: PydanticObjectId
     variable: str

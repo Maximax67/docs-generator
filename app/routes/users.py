@@ -1,10 +1,10 @@
-from typing import Any, Literal
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from beanie import PydanticObjectId
 
-from app.enums import UserRole
+from app.enums import UserRole, UserStatus
 from app.limiter import limiter
 from app.schemas.common_responses import DetailResponse, Paginated
 from app.schemas.users import UserUpdateRequest
@@ -53,9 +53,7 @@ async def get_all_users(
     page_size: int = Query(25, ge=1, le=100),
     q: str | None = Query(None, description="Search query for name or email"),
     role: UserRole | None = Query(None, description="Filter by role"),
-    status: Literal["banned"] | Literal["active"] | None = Query(
-        None, description="Filter by status (active/banned)"
-    ),
+    status: UserStatus | None = Query(None, description="Filter by status"),
 ) -> Paginated[User]:
     query = User.find_all()
 
@@ -202,48 +200,20 @@ async def delete_user(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     async for session in Session.find(
-        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+        Session.user.id == user_id  # type: ignore[attr-defined]
     ):
         bloom_filter.add(session.access_jti)
 
     await Session.find(
-        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+        Session.user.id == user_id  # type: ignore[attr-defined]
     ).delete()
-    await Result.find(Result.user.id == user_id).delete()  # pyright: ignore
+    await Result.find(Result.user.id == user_id).delete()  # type: ignore[attr-defined]
     await user.delete()
 
     if authorized_user.user_id == user_id:
         clear_auth_cookies(response)
 
     return DetailResponse(detail="User deleted")
-
-
-@router.delete(
-    "/{user_id}/generations",
-    response_model=DetailResponse,
-    responses=common_responses,
-)
-@limiter.limit("5/minute")
-async def delete_user_generated_documents(
-    user_id: PydanticObjectId,
-    request: Request,
-    response: Response,
-    authorized_user: AuthorizedUser = Depends(authorize_user_or_admin),
-) -> DetailResponse:
-    user = await User.find_one(User.id == user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    if (
-        user.role == UserRole.ADMIN or user.role == UserRole.GOD
-    ) and authorized_user.role != UserRole.GOD:
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    result = await Result.find(Result.user.id == user.id).delete()  # pyright: ignore
-    if not result:
-        raise HTTPException(status_code=404, detail="Generations not found")
-
-    return DetailResponse(detail=f"Deleted: {result.deleted_count}")
 
 
 @router.post(

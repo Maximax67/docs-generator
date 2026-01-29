@@ -13,6 +13,7 @@ from app.schemas.common_responses import DetailResponse, Paginated
 from app.schemas.variables import (
     VariableCreate,
     VariableResponse,
+    VariableSchemaUpdate,
     VariableValidateRequest,
     VariableSaveRequest,
     SavedVariableResponse,
@@ -85,11 +86,6 @@ async def get_variables(
     else:
         query = Variable.find_all()
 
-    if query_filters:
-        query = Variable.find(*query_filters)
-    else:
-        query = Variable.find_all()
-
     items, meta = await paginate(query, page, page_size)
     items_with_overrides = []
 
@@ -133,12 +129,12 @@ async def create_or_update_variable(
     - If not, a new variable will be created
     """
     # Validate that either value or schema is provided, not both
-    if body.value is not None and body.schema is not None:
+    if body.value is not None and body.validation_schema is not None:
         raise HTTPException(
             status_code=400, detail="Variable cannot have both 'value' and 'schema'"
         )
 
-    if body.value is None and body.schema is None:
+    if body.value is None and body.validation_schema is None:
         raise HTTPException(
             status_code=400, detail="Variable must have either 'value' or 'schema'"
         )
@@ -184,6 +180,108 @@ async def create_or_update_variable(
     return VariableResponse(**var_dict)
 
 
+@router.put(
+    "/schema",
+    response_model=DetailResponse,
+    responses={
+        **common_responses,
+        400: {
+            "description": "Invalid schema or scope",
+            "content": {
+                "application/json": {"example": {"detail": "Invalid JSON schema"}}
+            },
+        },
+    },
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit("5/minute")
+async def update_variables_schema(
+    body: VariableSchemaUpdate,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+) -> DetailResponse:
+    """
+    Update all variables for a scope based on a JSON schema.
+
+    - Extracts properties from schema as individual variables
+    - Updates existing variables, creates new ones, deletes unused ones
+    - Uses 'required' array to mark required variables
+    """
+
+    if body.scope:
+        try:
+            get_drive_item_metadata(body.scope)
+        except Exception:
+            raise HTTPException(
+                status_code=404, detail="Scope does not exist in Google Drive"
+            )
+
+    try:
+        jsonschema.Draft202012Validator.check_schema(body.validation_schema)
+    except jsonschema.SchemaError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON schema: {e}")
+
+    if body.validation_schema.get("type") != "object":
+        raise HTTPException(
+            status_code=400, detail="Root schema must be of type 'object'"
+        )
+
+    properties = body.validation_schema.get("properties", {})
+    required_fields = set(body.validation_schema.get("required", []))
+
+    if not properties:
+        raise HTTPException(
+            status_code=400, detail="Schema must have at least one property"
+        )
+
+    existing_vars = await Variable.find(Variable.scope == body.scope).to_list()
+
+    existing_by_name = {v.variable: v for v in existing_vars}
+    variable_names_in_schema = set(properties.keys())
+
+    created_count = 0
+    updated_count = 0
+    deleted_count = 0
+
+    for var_name, var_schema in properties.items():
+        is_required = var_name in required_fields
+
+        if var_name in existing_by_name:
+            existing = existing_by_name[var_name]
+            existing.validation_schema = var_schema
+            existing.required = is_required
+            existing.updated_by = cast(Link[User], current_user.id)
+            await existing.save()
+            updated_count += 1
+        else:
+            new_var = Variable(
+                variable=var_name,
+                scope=body.scope,
+                validation_schema=var_schema,
+                required=is_required,
+                allow_save=False,
+                created_by=cast(Link[User], current_user.id),
+                updated_by=cast(Link[User], current_user.id),
+            )
+            await new_var.insert()
+            created_count += 1
+
+    for var_name, existing_var in existing_by_name.items():
+        if var_name not in variable_names_in_schema:
+            await SavedVariable.find(
+                SavedVariable.variable.id  # type: ignore[attr-defined]
+                == existing_var.id
+            ).delete()
+
+            await existing_var.delete()
+            deleted_count += 1
+
+    return DetailResponse(
+        detail=f"Schema updated: {created_count} created, {updated_count} updated, {deleted_count} deleted"
+    )
+
+
 @router.get(
     "/saved",
     response_model=Paginated[SavedVariableResponse],
@@ -198,8 +296,7 @@ async def get_saved_variables(
     page_size: int = Query(20, ge=1, le=100),
 ) -> Paginated[SavedVariableResponse]:
     query = SavedVariable.find(
-        SavedVariable.user.id  # pyright: ignore[reportAttributeAccessIssue]
-        == current_user.id
+        SavedVariable.user.id == current_user.id  # type: ignore[attr-defined]
     ).sort([("updated_at", SortDirection.DESCENDING)])
 
     items, meta = await paginate(query, page, page_size)
@@ -223,8 +320,7 @@ async def delete_all_saved_variables(
 ) -> DetailResponse:
     """Delete all saved variables for the current user."""
     result = await SavedVariable.find(
-        SavedVariable.user.id  # pyright: ignore[reportAttributeAccessIssue]
-        == current_user.id
+        SavedVariable.user.id == current_user.id  # type: ignore[attr-defined]
     ).delete()
 
     count = result.deleted_count if result else 0
@@ -274,8 +370,7 @@ async def delete_variable(
 
     # Delete all saved instances of this variable
     await SavedVariable.find(
-        SavedVariable.variable.id  # pyright: ignore[reportAttributeAccessIssue]
-        == variable_id
+        SavedVariable.variable.id == variable_id  # type: ignore[attr-defined]
     ).delete()
 
     await variable.delete()
@@ -388,10 +483,8 @@ async def save_variable_value(
 
     # Find or create saved variable
     existing = await SavedVariable.find_one(
-        SavedVariable.user.id  # pyright: ignore[reportAttributeAccessIssue]
-        == current_user.id,
-        SavedVariable.variable.id  # pyright: ignore[reportAttributeAccessIssue]
-        == variable_id,
+        SavedVariable.user.id == current_user.id,  # type: ignore[attr-defined]
+        SavedVariable.variable.id == variable_id,  # type: ignore[attr-defined]
     )
 
     if existing:
@@ -430,10 +523,8 @@ async def forget_variable_value(
 ) -> DetailResponse:
     """Remove a saved variable value for the current user."""
     saved = await SavedVariable.find_one(
-        SavedVariable.user.id  # pyright: ignore[reportAttributeAccessIssue]
-        == current_user.id,
-        SavedVariable.variable.id  # pyright: ignore[reportAttributeAccessIssue]
-        == variable_id,
+        SavedVariable.user.id == current_user.id,  # type: ignore[attr-defined]
+        SavedVariable.variable.id == variable_id,  # type: ignore[attr-defined]
     )
 
     if not saved:

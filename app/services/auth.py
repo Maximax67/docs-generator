@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 from urllib.parse import urljoin
@@ -217,10 +215,7 @@ async def rotate_refresh_token(
     user_id: PydanticObjectId, old_jti: str, session_name: str
 ) -> tuple[str, str, int, int]:
     session = await Session.find_one(Session.refresh_jti == old_jti, fetch_links=True)
-    if (
-        not session
-        or session.user.id != user_id  # pyright: ignore[reportAttributeAccessIssue]
-    ):
+    if not session or session.user.id != user_id:  # type: ignore[attr-defined]
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     bloom_filter.add(session.access_jti)
@@ -234,12 +229,12 @@ async def rotate_refresh_token(
 
 async def revoke_all_sessions(user_id: PydanticObjectId) -> None:
     async for session in Session.find(
-        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+        Session.user.id == user_id  # type: ignore[attr-defined]
     ):
         bloom_filter.add(session.access_jti)
 
     await Session.find(
-        Session.user.id == user_id  # pyright: ignore[reportAttributeAccessIssue]
+        Session.user.id == user_id  # type: ignore[attr-defined]
     ).delete()
 
 
@@ -267,7 +262,7 @@ async def logout_current_session(request: Request, response: Response) -> None:
         raise HTTPException(status_code=401, detail="Invalid subject in token")
 
     session = await Session.find_one(
-        Session.user.id == user_id,  # pyright: ignore[reportAttributeAccessIssue]
+        Session.user.id == user_id,  # type: ignore[attr-defined]
         Session.access_jti == payload["jti"],
     )
     if not session:

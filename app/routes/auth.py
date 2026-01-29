@@ -203,8 +203,7 @@ async def list_sessions(
             current_jti = None
 
     sessions = await Session.find(
-        Session.user.id  # pyright: ignore[reportAttributeAccessIssue]
-        == current_user.id
+        Session.user.id == current_user.id  # type: ignore[attr-defined]
     ).to_list()
     result: list[SessionInfo] = []
     for s in sessions:
@@ -247,10 +246,7 @@ async def revoke_session(
     current_user: User = Depends(get_current_user),
 ) -> DetailResponse:
     s = await Session.find_one(Session.id == session_id, fetch_links=True)
-    if (
-        not s
-        or s.user.id != current_user.id  # pyright: ignore[reportAttributeAccessIssue]
-    ):
+    if not s or s.user.id != current_user.id:  # type: ignore[attr-defined]
         raise HTTPException(status_code=404, detail="Session not found")
 
     access_cookie = request.cookies.get(settings.ACCESS_COOKIE_NAME)
@@ -508,7 +504,7 @@ async def password_forgot(
     url = urljoin(str(settings.FRONTEND_URL), f"/reset-password?token={token}")
 
     await send_email(
-        user.email,  # pyright: ignore
+        user.email,  # type: ignore[attr-defined]
         "Password reset",
         "reset",
         user.first_name,

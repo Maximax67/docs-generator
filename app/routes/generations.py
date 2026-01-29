@@ -28,7 +28,7 @@ from app.schemas.auth import AuthorizedUser
 from app.schemas.documents import GenerateDocumentRequest
 from app.models import Result, User
 from app.schemas.common_responses import Paginated
-from app.dependencies import get_authorized_user, authorize_user_or_admin_query
+from app.dependencies import get_authorized_user, require_admin
 from app.exceptions import ValidationErrorsException
 
 
@@ -58,14 +58,14 @@ common_responses: dict[int | str, dict[str, Any]] = {
     responses={401: common_responses[401], 403: common_responses[403]},
 )
 @limiter.limit("10/minute")
-async def get_results_documents(
+async def get_generations(
     request: Request,
     response: Response,
     user_id: str | None = Query(None),
     template_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
-    authorized_user: AuthorizedUser = Depends(authorize_user_or_admin_query),
+    authorized_user: AuthorizedUser = Depends(require_admin),
 ) -> Paginated[Result]:
     query: dict[str, str | PydanticObjectId | None] = {}
 
@@ -126,13 +126,41 @@ async def get_results_documents(
     return Paginated(data=results, meta=meta)
 
 
+@router.delete(
+    "",
+    response_model=DetailResponse,
+    responses=common_responses,
+)
+@limiter.limit("5/minute")
+async def delete_user_generated_documents(
+    request: Request,
+    response: Response,
+    user_id: PydanticObjectId = Query(),
+    authorized_user: AuthorizedUser = Depends(require_admin),
+) -> DetailResponse:
+    user = await User.find_one(User.id == user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if (
+        user.role == UserRole.ADMIN or user.role == UserRole.GOD
+    ) and authorized_user.role != UserRole.GOD:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    result = await Result.find(Result.user.id == user.id).delete()  # type: ignore[attr-defined]
+    if not result:
+        raise HTTPException(status_code=404, detail="Generations not found")
+
+    return DetailResponse(detail=f"Deleted: {result.deleted_count}")
+
+
 @router.get(
     "/{result_id}",
     response_model=Result,
     responses=common_responses,
 )
 @limiter.limit("10/minute")
-async def get_result_document_by_id(
+async def get_generation_by_id(
     result_id: PydanticObjectId,
     request: Request,
     response: Response,
@@ -147,8 +175,7 @@ async def get_result_document_by_id(
     if user:
         if (
             authorized_user.role == UserRole.USER
-            and authorized_user.user_id
-            != user.id  # pyright: ignore[reportAttributeAccessIssue]
+            and authorized_user.user_id != user.id  # type: ignore[attr-defined]
         ):
             raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -174,7 +201,7 @@ async def get_result_document_by_id(
     },
 )
 @limiter.limit("5/minute")
-async def regenerate_result_by_id(
+async def regenerate_by_id(
     result_id: PydanticObjectId,
     body: GenerateDocumentRequest,
     background_tasks: BackgroundTasks,
@@ -192,8 +219,7 @@ async def regenerate_result_by_id(
     if user:
         if (
             authorized_user.role == UserRole.USER
-            and authorized_user.user_id
-            != user.id  # pyright: ignore[reportAttributeAccessIssue]
+            and authorized_user.user_id != user.id  # type: ignore[attr-defined]
         ):
             raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -255,11 +281,11 @@ async def regenerate_result_by_id(
     responses=common_responses,
 )
 @limiter.limit("5/minute")
-async def delete_result_document_by_id(
+async def delete_generation_by_id(
     result_id: PydanticObjectId,
     request: Request,
     response: Response,
-    authorized_user: AuthorizedUser = Depends(get_authorized_user),
+    authorized_user: AuthorizedUser = Depends(require_admin),
 ) -> DetailResponse:
     result = await Result.find_one(Result.id == result_id, fetch_links=True)
     if not result:
@@ -274,12 +300,6 @@ async def delete_result_document_by_id(
             and authorized_user.role != UserRole.GOD
         ):
             raise HTTPException(status_code=403, detail="Forbidden")
-
-        if authorized_user.role == UserRole.USER and authorized_user.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-
-    elif authorized_user.role == UserRole.USER:
-        raise HTTPException(status_code=403, detail="Forbidden")
 
     await result.delete()
 

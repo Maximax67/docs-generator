@@ -1,7 +1,3 @@
-"""
-services/variables.py - Updated variable resolution for document generation
-"""
-
 from typing import Any
 from beanie import PydanticObjectId
 from beanie.operators import In, Eq
@@ -67,13 +63,12 @@ async def get_effective_variables_for_document(
     saved_values: dict[str, Any] = {}
     if user_id:
         saved_vars = await SavedVariable.find(
-            SavedVariable.user.id  # pyright: ignore[reportAttributeAccessIssue]
-            == user_id
+            SavedVariable.user.id == user_id  # type: ignore[attr-defined]
         ).to_list()
 
         for saved in saved_vars:
             # Get the variable name from the linked Variable
-            var_obj = await Variable.get(saved.variable.ref.id)  # pyright: ignore
+            var_obj = await Variable.get(saved.variable.ref.id)
             if var_obj and var_obj.variable in template_variables:
                 saved_values[var_obj.variable] = saved.value
 

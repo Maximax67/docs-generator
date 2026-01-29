@@ -14,6 +14,11 @@ class UserRole(str, Enum):
     USER = "user"
 
 
+class UserStatus(str, Enum):
+    active = "active"
+    banned = "banned"
+
+
 class DocumentResponseFormat(str, Enum):
     DOCX = "docx"
     PDF = "pdf"

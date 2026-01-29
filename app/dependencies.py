@@ -86,23 +86,6 @@ async def authorize_user_or_admin(
     raise HTTPException(status_code=403, detail="Forbidden")
 
 
-async def authorize_user_or_admin_query(
-    request: Request,
-    user_id: str | None = Query(None),
-) -> AuthorizedUser:
-    authorized_user = get_authorized_user(request)
-    role = authorized_user.role
-
-    if (
-        role == UserRole.ADMIN
-        or role == UserRole.GOD
-        or str(authorized_user.user_id) == user_id
-    ):
-        return authorized_user
-
-    raise HTTPException(status_code=403, detail="Forbidden")
-
-
 async def authorize_user_or_god(
     user_id: PydanticObjectId, request: Request
 ) -> AuthorizedUser:
