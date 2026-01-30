@@ -1,5 +1,5 @@
 from beanie import PydanticObjectId
-from fastapi import HTTPException, Query, Request
+from fastapi import HTTPException, Request
 
 from app.enums import TokenType, UserRole
 from app.models import User

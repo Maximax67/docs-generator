@@ -1,4 +1,5 @@
 from typing import Annotated
+from beanie import PydanticObjectId
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.enums import UserRole
@@ -26,3 +27,11 @@ class UserUpdateRequest(BaseModel):
             raise ValueError("Invalid format")
 
         return v
+
+
+class UserPublicResponse(BaseModel):
+    id: PydanticObjectId
+    first_name: str
+    last_name: str | None = None
+    is_banned: bool
+    role: UserRole = UserRole.USER

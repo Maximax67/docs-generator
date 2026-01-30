@@ -1,10 +1,10 @@
 from typing import Annotated
-from beanie import Indexed
+from beanie import Document, Indexed
 
 from .timestamps import TimestampMixin
 
 
-class PinnedFolder(TimestampMixin):
+class PinnedFolder(Document, TimestampMixin):
     folder_id: Annotated[str, Indexed(unique=True)]
 
     class Settings:

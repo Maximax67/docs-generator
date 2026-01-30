@@ -1,11 +1,11 @@
 from typing import Annotated
-from beanie import Indexed, Link
+from beanie import Document, Indexed, Link
 
 from .timestamps import TimestampMixin
 from .user import User
 
 
-class Session(TimestampMixin):
+class Session(Document, TimestampMixin):
     user: Annotated[Link[User], Indexed()]
     refresh_jti: Annotated[str, Indexed(unique=True)]
     access_jti: str

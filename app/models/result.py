@@ -1,12 +1,12 @@
 from typing import Annotated, Any
-from beanie import Indexed, Link
+from beanie import Document, Indexed, Link
 
 from app.enums import DocumentResponseFormat
 from .timestamps import TimestampMixin
 from .user import User
 
 
-class Result(TimestampMixin):
+class Result(Document, TimestampMixin):
     user: Annotated[Link[User] | None, Indexed(sparse=True)] = None
     template_id: str
     template_name: str

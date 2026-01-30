@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from beanie import PydanticObjectId
 
 from app.settings import settings
+from app.schemas.users import UserPublicResponse
 
 
 class VariableCreate(BaseModel):
@@ -19,9 +20,7 @@ class VariableCreate(BaseModel):
     validation_schema: dict[str, Any] | None = Field(
         None, description="JSON Schema for validation"
     )
-    value: dict[str, Any] | None = Field(
-        None, description="Constant value (if not user input)"
-    )
+    value: Any | None = Field(None, description="Constant value (if not user input)")
 
     @field_validator("variable")
     def validate_variable_name(cls: "VariableCreate", v: str) -> str:
@@ -48,6 +47,18 @@ class VariableCreate(BaseModel):
             raise ValueError(f"Variable schema error: {e}")
 
         return v
+
+
+class VariableCompactResponse(BaseModel):
+    id: PydanticObjectId
+    scope: str | None = None
+    variable: str
+    value: Any | None = None
+
+
+class VariableSchemaResponse(BaseModel):
+    validation_schema: dict[str, Any]
+    variables: list[VariableCompactResponse]
 
 
 class VariableSchemaUpdate(BaseModel):
@@ -82,8 +93,8 @@ class VariableResponse(BaseModel):
     allow_save: bool
     scope: str | None
     required: bool
-    created_by: PydanticObjectId | None
-    updated_by: PydanticObjectId | None
+    created_by: UserPublicResponse | None
+    updated_by: UserPublicResponse | None
     validation_schema: dict[str, Any] | None
     value: Any
     created_at: datetime

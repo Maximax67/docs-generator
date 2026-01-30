@@ -11,8 +11,10 @@ from app.limiter import limiter
 from app.models import Variable, User, SavedVariable
 from app.schemas.common_responses import DetailResponse, Paginated
 from app.schemas.variables import (
+    VariableCompactResponse,
     VariableCreate,
     VariableResponse,
+    VariableSchemaResponse,
     VariableSchemaUpdate,
     VariableValidateRequest,
     VariableSaveRequest,
@@ -82,9 +84,9 @@ async def get_variables(
         query_filters.append(RegEx(Variable.variable, f".*{search}.*", "i"))
 
     if query_filters:
-        query = Variable.find(*query_filters)
+        query = Variable.find(*query_filters, fetch_links=True)
     else:
-        query = Variable.find_all()
+        query = Variable.find_all(fetch_links=True)
 
     items, meta = await paginate(query, page, page_size)
     items_with_overrides = []
@@ -150,13 +152,15 @@ async def create_or_update_variable(
 
     # Find existing variable
     existing = await Variable.find_one(
-        Variable.variable == body.variable, Variable.scope == body.scope
+        Variable.variable == body.variable,
+        Variable.scope == body.scope,
+        fetch_links=True,
     )
 
     if existing:
         # Update existing variable
         update_data = body.model_dump(exclude_unset=True)
-        update_data["updated_by"] = current_user.id
+        update_data["updated_by"] = current_user
 
         for key, value in update_data.items():
             setattr(existing, key, value)
@@ -167,17 +171,89 @@ async def create_or_update_variable(
         # Create new variable
         variable = Variable(
             **body.model_dump(),
-            created_by=cast(Link[User], current_user.id),
-            updated_by=cast(Link[User], current_user.id),
+            created_by=cast(Link[User], current_user),
+            updated_by=cast(Link[User], current_user),
         )
         await variable.insert()
 
     # Get overrides
     overrides = await get_variable_overrides(variable.variable, variable.scope)
-    var_dict = variable.model_dump()
-    var_dict["overrides"] = overrides
+    resp = VariableResponse.model_validate(variable)
+    resp.overrides = overrides
 
-    return VariableResponse(**var_dict)
+    return resp
+
+
+@router.get(
+    "/schema",
+    response_model=VariableSchemaResponse,
+    responses={
+        **common_responses,
+        400: {
+            "description": "Invalid schema or scope",
+            "content": {
+                "application/json": {"example": {"detail": "Invalid JSON schema"}}
+            },
+        },
+    },
+)
+@limiter.limit("10/minute")
+async def get_variables_schema(
+    request: Request,
+    response: Response,
+    scope: str | None = Query(None),
+) -> VariableSchemaResponse:
+    """
+    Get variables schema for a scope.
+
+    - **validation_schema**: JSON schema built from variables with exact scope match
+    - **variables**: All variables for the scope and its parent scopes (hierarchical)
+
+    Returns variables with only: id, scope, variable, value fields
+    """
+
+    if scope:
+        try:
+            scope_chain = get_item_path(scope)
+        except Exception:
+            scope_chain = [scope]
+    else:
+        scope_chain = [None]
+
+    all_vars = await Variable.find(In(Variable.scope, scope_chain)).to_list()
+
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    variables_list: list[VariableCompactResponse] = []
+
+    for var in all_vars:
+        if var.scope == scope and var.validation_schema:
+            properties[var.variable] = var.validation_schema
+            if var.required:
+                required.append(var.variable)
+
+        variables_list.append(
+            VariableCompactResponse(
+                id=var.id,  # type: ignore
+                scope=var.scope,
+                variable=var.variable,
+                value=var.value,
+            )
+        )
+
+    validation_schema = (
+        {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }
+        if properties
+        else {}
+    )
+
+    return VariableSchemaResponse(
+        validation_schema=validation_schema, variables=variables_list
+    )
 
 
 @router.put(
@@ -251,7 +327,7 @@ async def update_variables_schema(
             existing = existing_by_name[var_name]
             existing.validation_schema = var_schema
             existing.required = is_required
-            existing.updated_by = cast(Link[User], current_user.id)
+            existing.updated_by = cast(Link[User], current_user)
             await existing.save()
             updated_count += 1
         else:
@@ -340,7 +416,7 @@ async def get_variable(
     response: Response,
 ) -> VariableResponse:
     """Get a specific variable by ID."""
-    variable = await Variable.get(variable_id)
+    variable = await Variable.get(variable_id, fetch_links=True)
     if not variable:
         raise HTTPException(status_code=404, detail="Variable not found")
 

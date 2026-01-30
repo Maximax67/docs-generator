@@ -10,7 +10,7 @@ from beanie import (
 from pydantic import Field
 
 
-class TimestampMixin(Document):
+class TimestampMixin:
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -22,6 +22,3 @@ class TimestampMixin(Document):
     @before_event(Replace, SaveChanges, Update)
     def update_timestamp(self) -> None:
         self.updated_at = datetime.now(timezone.utc)
-
-    class Settings:
-        use_state_management = True

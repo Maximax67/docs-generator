@@ -1,5 +1,5 @@
 from typing import Any
-from beanie import Link
+from beanie import Document, Link
 from pydantic import Field
 from pymongo import IndexModel
 
@@ -7,7 +7,7 @@ from .timestamps import TimestampMixin
 from .user import User
 
 
-class Variable(TimestampMixin):
+class Variable(Document, TimestampMixin):
     variable: str
     allow_save: bool = Field(default=False)
     scope: str | None = None

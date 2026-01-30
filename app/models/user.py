@@ -1,12 +1,12 @@
 from typing import Annotated
-from beanie import Indexed
+from beanie import Document, Indexed
 from pydantic import Field
 
 from app.enums import UserRole
 from .timestamps import TimestampMixin
 
 
-class User(TimestampMixin):
+class User(Document, TimestampMixin):
     email: Annotated[str, Indexed(unique=True)]
 
     first_name: str
