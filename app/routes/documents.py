@@ -299,7 +299,7 @@ async def preview_document(
 
 
 @router.post(
-    "/{document_id}/validate",
+    "/{document_id}/validation",
     response_model=ValidationErrorsResponse,
     responses={
         **common_responses_with_validation,

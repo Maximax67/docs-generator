@@ -119,7 +119,7 @@ async def get_folders_tree(request: Request, response: Response) -> FolderTreeRe
 
 
 @router.post(
-    "/refresh_pinned",
+    "/refresh-pinned",
     response_model=DetailResponse,
     dependencies=[Depends(require_admin)],
 )

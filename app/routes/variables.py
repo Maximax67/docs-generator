@@ -103,7 +103,7 @@ async def get_variables(
     )
 
 
-@router.put(
+@router.post(
     "",
     response_model=VariableResponse,
     responses={
@@ -118,19 +118,12 @@ async def get_variables(
     dependencies=[Depends(require_admin)],
 )
 @limiter.limit("5/minute")
-async def create_or_update_variable(
+async def create_variable(
     body: VariableCreate,
     request: Request,
     response: Response,
     current_user: User = Depends(get_current_user),
 ) -> VariableResponse:
-    """
-    Create or update a variable.
-
-    - If variable with same name and scope exists, it will be updated
-    - If not, a new variable will be created
-    """
-    # Validate that either value or schema is provided, not both
     if body.value is not None and body.validation_schema is not None:
         raise HTTPException(
             status_code=400, detail="Variable cannot have both 'value' and 'schema'"
@@ -141,7 +134,6 @@ async def create_or_update_variable(
             status_code=400, detail="Variable must have either 'value' or 'schema'"
         )
 
-    # Validate scope exists if provided
     if body.scope:
         try:
             get_drive_item_metadata(body.scope)
@@ -150,33 +142,23 @@ async def create_or_update_variable(
                 status_code=404, detail="Scope does not exist in Google Drive"
             )
 
-    # Find existing variable
     existing = await Variable.find_one(
         Variable.variable == body.variable,
         Variable.scope == body.scope,
-        fetch_links=True,
     )
 
     if existing:
-        # Update existing variable
-        update_data = body.model_dump(exclude_unset=True)
-        update_data["updated_by"] = current_user
-
-        for key, value in update_data.items():
-            setattr(existing, key, value)
-
-        await existing.save()
-        variable = existing
-    else:
-        # Create new variable
-        variable = Variable(
-            **body.model_dump(),
-            created_by=cast(Link[User], current_user),
-            updated_by=cast(Link[User], current_user),
+        raise HTTPException(
+            status_code=409, detail="Variable with this name and scope already exists"
         )
-        await variable.insert()
 
-    # Get overrides
+    variable = Variable(
+        **body.model_dump(),
+        created_by=cast(Link[User], current_user),
+        updated_by=cast(Link[User], current_user),
+    )
+    await variable.insert()
+
     overrides = await get_variable_overrides(variable.variable, variable.scope)
     resp = VariableResponse.model_validate(variable)
     resp.overrides = overrides
@@ -328,6 +310,7 @@ async def update_variables_schema(
             existing.validation_schema = var_schema
             existing.required = is_required
             existing.updated_by = cast(Link[User], current_user)
+            existing.value = None
             await existing.save()
             updated_count += 1
         else:
@@ -337,6 +320,7 @@ async def update_variables_schema(
                 validation_schema=var_schema,
                 required=is_required,
                 allow_save=False,
+                value=None,
                 created_by=cast(Link[User], current_user.id),
                 updated_by=cast(Link[User], current_user.id),
             )
@@ -427,6 +411,62 @@ async def get_variable(
     return VariableResponse(**var_dict)
 
 
+@router.put(
+    "/{variable_id}",
+    response_model=VariableResponse,
+    responses=common_responses,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit("5/minute")
+async def update_variable(
+    variable_id: PydanticObjectId,
+    body: VariableCreate,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+) -> VariableResponse:
+    if body.value is not None and body.validation_schema is not None:
+        raise HTTPException(
+            status_code=400, detail="Variable cannot have both 'value' and 'schema'"
+        )
+
+    if body.value is None and body.validation_schema is None:
+        raise HTTPException(
+            status_code=400, detail="Variable must have either 'value' or 'schema'"
+        )
+
+    if body.scope:
+        try:
+            get_drive_item_metadata(body.scope)
+        except Exception:
+            raise HTTPException(
+                status_code=404, detail="Scope does not exist in Google Drive"
+            )
+
+    existing = await Variable.find_one(
+        Variable.id == variable_id,
+        fetch_links=True,
+    )
+
+    if not existing:
+        raise HTTPException(status_code=404, detail="Variable not exists")
+
+    update_data = body.model_dump()
+    update_data["updated_by"] = current_user
+
+    for key, value in update_data.items():
+        setattr(existing, key, value)
+
+    await existing.save()
+    variable = existing
+
+    overrides = await get_variable_overrides(variable.variable, variable.scope)
+    resp = VariableResponse.model_validate(variable)
+    resp.overrides = overrides
+
+    return resp
+
+
 @router.delete(
     "/{variable_id}",
     response_model=DetailResponse,
@@ -455,7 +495,7 @@ async def delete_variable(
 
 
 @router.post(
-    "/{variable_id}/validate",
+    "/{variable_id}/validation",
     response_model=DetailResponse,
     responses={
         **common_responses,

@@ -155,28 +155,6 @@ async def logout(request: Request, response: Response) -> DetailResponse:
     return DetailResponse(detail="Logged out")
 
 
-@router.post(
-    "/logout_all",
-    response_model=DetailResponse,
-    responses={
-        401: {
-            "description": "Not authenticated",
-            "content": {
-                "application/json": {"example": {"detail": "Not authenticated"}}
-            },
-        },
-    },
-)
-@limiter.limit("2/minute")
-async def logout_all(
-    request: Request, response: Response, current_user: User = Depends(get_current_user)
-) -> DetailResponse:
-    await revoke_all_sessions(current_user.id)  # type: ignore[arg-type]
-    clear_auth_cookies(response)
-
-    return DetailResponse(detail="All sessions terminated")
-
-
 @router.get(
     "/sessions",
     response_model=list[SessionInfo],
@@ -218,6 +196,28 @@ async def list_sessions(
         )
 
     return result
+
+
+@router.delete(
+    "/sessions",
+    response_model=DetailResponse,
+    responses={
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {"example": {"detail": "Not authenticated"}}
+            },
+        },
+    },
+)
+@limiter.limit("2/minute")
+async def logout_all(
+    request: Request, response: Response, current_user: User = Depends(get_current_user)
+) -> DetailResponse:
+    await revoke_all_sessions(current_user.id)  # type: ignore[arg-type]
+    clear_auth_cookies(response)
+
+    return DetailResponse(detail="All sessions terminated")
 
 
 @router.delete(
