@@ -504,7 +504,7 @@ async def password_forgot(
     url = urljoin(str(settings.FRONTEND_URL), f"/reset-password?token={token}")
 
     await send_email(
-        user.email,  # type: ignore[attr-defined]
+        user.email,
         "Password reset",
         "reset",
         user.first_name,

@@ -147,7 +147,7 @@ async def delete_user_generated_documents(
     ) and authorized_user.role != UserRole.GOD:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    result = await Result.find(Result.user.id == user.id).delete()  # type: ignore[attr-defined]
+    result = await Result.find(Result.user.id == user.id).delete()  # type: ignore
     if not result:
         raise HTTPException(status_code=404, detail="Generations not found")
 

@@ -207,7 +207,7 @@ async def delete_user(
     await Session.find(
         Session.user.id == user_id  # type: ignore[attr-defined]
     ).delete()
-    await Result.find(Result.user.id == user_id).delete()  # type: ignore[attr-defined]
+    await Result.find(Result.user.id == user_id).delete()  # type: ignore
     await user.delete()
 
     if authorized_user.user_id == user_id:

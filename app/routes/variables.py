@@ -202,10 +202,10 @@ async def get_variables_schema(
             scope_chain = get_item_path(scope)
         except Exception:
             scope_chain = [scope]
-    else:
-        scope_chain = [None]
 
-    all_vars = await Variable.find(In(Variable.scope, scope_chain)).to_list()
+        all_vars = await Variable.find(In(Variable.scope, scope_chain)).to_list()
+    else:
+        all_vars = await Variable.find(Eq(Variable.scope, None)).to_list()
 
     properties: dict[str, Any] = {}
     required: list[str] = []
@@ -420,7 +420,7 @@ async def batch_save_variables(
 ) -> VariableBatchSaveResponse | JSONResponse:
     requested_ids = [item.id for item in body.variables]
     variables_map: dict[PydanticObjectId, Variable] = {
-        v.id: v  # type: ignore[index]
+        v.id: v  # type: ignore
         for v in await Variable.find(In(Variable.id, requested_ids)).to_list()
     }
 
