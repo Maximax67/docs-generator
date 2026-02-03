@@ -18,7 +18,7 @@ async def get_effective_variables_for_document(
     Get effective variables for a document based on template variables and database config.
 
     Returns dict where keys are variable names and values contain:
-    - in_database: Whether this variable is configured in database
+    - id: Variable id if it is configured in database
     - value: Constant value (if set) or None
     - validation_schema: Validation schema (if set) or None
     - required: Whether the variable is required
@@ -79,7 +79,7 @@ async def get_effective_variables_for_document(
         if var_name in effective_db_vars:
             var = effective_db_vars[var_name]
             result[var_name] = {
-                "in_database": True,
+                "id": var.id,
                 "value": var.value,
                 "validation_schema": var.validation_schema,
                 "required": var.required,
@@ -90,7 +90,6 @@ async def get_effective_variables_for_document(
         else:
             # Variable not in database, accept any user input
             result[var_name] = {
-                "in_database": False,
                 "value": None,
                 "validation_schema": None,
                 "required": False,
@@ -158,7 +157,7 @@ async def resolve_variables_for_generation(
     errors: dict[str, str] = {}
 
     for var_name, var_info in effective_vars.items():
-        if not var_info["in_database"]:
+        if not var_info["id"]:
             # Variable not in database, accept user input if provided
             if var_name in user_provided_values:
                 context[var_name] = user_provided_values[var_name]

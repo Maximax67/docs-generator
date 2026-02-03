@@ -15,7 +15,7 @@ class Variable(Document, TimestampMixin):
     created_by: Link[User] | None = None
     updated_by: Link[User] | None = None
     validation_schema: dict[str, Any] | None = None
-    value: dict[str, Any] | None = None
+    value: Any | None = None
 
     class Settings:
         name = "variables"

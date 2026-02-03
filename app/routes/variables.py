@@ -5,12 +5,14 @@ from beanie import Link, PydanticObjectId, SortDirection
 from beanie.operators import In, RegEx, Eq
 import jsonschema
 from jsonschema import ValidationError as JsonSchemaValidationError
+from pymongo import UpdateOne
 
 from app.dependencies import get_current_user, require_admin
 from app.limiter import limiter
 from app.models import Variable, User, SavedVariable
 from app.schemas.common_responses import DetailResponse, Paginated
 from app.schemas.variables import (
+    VariableBatchSaveResponse,
     VariableCompactResponse,
     VariableCreate,
     VariableResponse,
@@ -19,6 +21,7 @@ from app.schemas.variables import (
     VariableValidateRequest,
     VariableSaveRequest,
     SavedVariableResponse,
+    VariableBatchSaveRequest,
 )
 from app.services.google_drive import get_drive_item_metadata, get_item_path
 from app.services.variables import get_variable_overrides
@@ -160,10 +163,10 @@ async def create_variable(
     await variable.insert()
 
     overrides = await get_variable_overrides(variable.variable, variable.scope)
-    resp = VariableResponse.model_validate(variable)
-    resp.overrides = overrides
+    var_dict = variable.model_dump()
+    var_dict["overrides"] = overrides
 
-    return resp
+    return VariableResponse(**var_dict)
 
 
 @router.get(
@@ -387,6 +390,127 @@ async def delete_all_saved_variables(
     return DetailResponse(detail=f"Deleted {count} saved variables")
 
 
+@router.post(
+    "/save",
+    response_model=VariableBatchSaveResponse,
+    responses={
+        401: common_responses[401],
+        400: {
+            "description": "One or more variables failed validation — nothing is saved",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Validation failed",
+                        "errors": {
+                            "507f1f77bcf86cd799439011": "Variable not found",
+                            "507f1f77bcf86cd799439012": "Cannot save constant variable",
+                        },
+                    }
+                }
+            },
+        },
+    },
+)
+@limiter.limit("10/minute")
+async def batch_save_variables(
+    body: VariableBatchSaveRequest,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+) -> VariableBatchSaveResponse | JSONResponse:
+    requested_ids = [item.id for item in body.variables]
+    variables_map: dict[PydanticObjectId, Variable] = {
+        v.id: v  # type: ignore[index]
+        for v in await Variable.find(In(Variable.id, requested_ids)).to_list()
+    }
+
+    errors: dict[str, str] = {}
+
+    for item in body.variables:
+        variable = variables_map.get(item.id)
+
+        if not variable:
+            errors[str(item.id)] = "Variable not found"
+            continue
+
+        if not variable.allow_save:
+            errors[str(item.id)] = "Variable does not allow saving"
+            continue
+
+        if variable.value is not None:
+            errors[str(item.id)] = "Cannot save constant variable"
+            continue
+
+        if variable.validation_schema:
+            try:
+                jsonschema.validate(
+                    instance=item.value, schema=variable.validation_schema
+                )
+            except JsonSchemaValidationError as e:
+                errors[str(item.id)] = f"Validation error: {e.message}"
+
+    if errors:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Validation failed", "errors": errors},
+        )
+
+    existing_docs = await SavedVariable.find(
+        SavedVariable.user.id == current_user.id,  # type: ignore[attr-defined]
+        In(SavedVariable.variable.id, requested_ids),  # type: ignore[attr-defined]
+    ).to_list()
+
+    existing_map: dict[PydanticObjectId, SavedVariable] = {
+        doc.variable.id: doc for doc in existing_docs  # type: ignore[attr-defined]
+    }
+
+    to_insert: list[SavedVariable] = []
+    to_update: list[SavedVariable] = []
+
+    for item in body.variables:
+        existing = existing_map.get(item.id)
+
+        if existing:
+            existing.value = item.value
+            to_update.append(existing)
+        else:
+            to_insert.append(
+                SavedVariable(
+                    user=cast(Link[User], current_user.id),
+                    variable=cast(Link[Variable], item.id),
+                    value=item.value,
+                )
+            )
+
+    if to_insert:
+        await SavedVariable.insert_many(to_insert)
+
+    if to_update:
+        operations = [
+            UpdateOne(
+                {"_id": doc.id},
+                {"$set": {"value": doc.value}},
+            )
+            for doc in to_update
+        ]
+        await SavedVariable.get_pymongo_collection().bulk_write(operations)
+
+    saved_map: dict[PydanticObjectId, SavedVariable] = {}
+
+    for doc in to_insert:
+        saved_map[doc.variable.id] = doc  # type: ignore[attr-defined]
+
+    for doc in to_update:
+        saved_map[doc.variable.id] = doc  # type: ignore[attr-defined]
+
+    saved: list[SavedVariableResponse] = [
+        SavedVariableResponse(**saved_map[item.id].model_dump())
+        for item in body.variables
+    ]
+
+    return VariableBatchSaveResponse(variables=saved)
+
+
 @router.get(
     "/{variable_id}",
     response_model=VariableResponse,
@@ -461,10 +585,10 @@ async def update_variable(
     variable = existing
 
     overrides = await get_variable_overrides(variable.variable, variable.scope)
-    resp = VariableResponse.model_validate(variable)
-    resp.overrides = overrides
+    var_dict = variable.model_dump()
+    var_dict["overrides"] = overrides
 
-    return resp
+    return VariableResponse(**var_dict)
 
 
 @router.delete(

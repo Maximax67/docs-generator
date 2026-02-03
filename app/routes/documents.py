@@ -123,8 +123,8 @@ async def get_document(
         var_info = variables_info.get(var_name, {})
         variables_list.append(
             DocumentVariable(
+                id=var_info.get("id"),
                 variable=var_name,
-                in_database=var_info.get("in_database", False),
                 value=var_info.get("value"),
                 validation_schema=var_info.get("validation_schema"),
                 required=var_info.get("required", False),
@@ -198,8 +198,8 @@ async def get_variables_for_document(
         var_info = variables_info.get(var_name, {})
         variables_list.append(
             DocumentVariable(
+                id=var_info.get("id"),
                 variable=var_name,
-                in_database=var_info.get("in_database", False),
                 value=var_info.get("value"),
                 validation_schema=var_info.get("validation_schema"),
                 required=var_info.get("required", False),

@@ -1,4 +1,5 @@
 from typing import Any
+from beanie import PydanticObjectId
 from pydantic import BaseModel, Field
 
 from app.schemas.google import DriveFile
@@ -7,10 +8,8 @@ from app.schemas.google import DriveFile
 class DocumentVariable(BaseModel):
     """Information about a single variable in a document template."""
 
+    id: PydanticObjectId | None = None
     variable: str = Field(..., description="Variable name")
-    in_database: bool = Field(
-        ..., description="Whether this variable has configuration in database"
-    )
     value: Any = Field(
         None, description="Constant value (if set), or None for user input"
     )
@@ -43,6 +42,19 @@ class GenerateDocumentRequest(BaseModel):
 
     variables: dict[str, Any] = Field(
         default_factory=dict, description="Variable values for document generation"
+    )
+    bypass_validation: bool = Field(
+        default=False,
+        description="If true, skip all validation and use user values as-is",
+    )
+
+
+class RegenerateDocumentRequest(BaseModel):
+    """Request body for document generation."""
+
+    variables: dict[str, Any] | None = Field(
+        None,
+        description="Variable values for document generation",
     )
     bypass_validation: bool = Field(
         default=False,

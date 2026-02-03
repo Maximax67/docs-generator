@@ -25,7 +25,7 @@ from app.services.documents import (
     validate_document_mime_type,
 )
 from app.schemas.auth import AuthorizedUser
-from app.schemas.documents import GenerateDocumentRequest
+from app.schemas.documents import RegenerateDocumentRequest
 from app.models import Result, User
 from app.schemas.common_responses import Paginated
 from app.dependencies import get_authorized_user, require_admin
@@ -203,7 +203,7 @@ async def get_generation_by_id(
 @limiter.limit("5/minute")
 async def regenerate_by_id(
     result_id: PydanticObjectId,
-    body: GenerateDocumentRequest,
+    body: RegenerateDocumentRequest,
     background_tasks: BackgroundTasks,
     request: Request,
     response: Response,
@@ -226,7 +226,6 @@ async def regenerate_by_id(
     elif authorized_user.role == UserRole.USER:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    # Use provided variables or fall back to original variables
     variables_to_use = body.variables if body.variables else result.variables
     validate_document_generation_request(variables_to_use)
 
@@ -263,8 +262,8 @@ async def regenerate_by_id(
         "format": format,
     }
 
-    if user:
-        new_result_data["user"] = cast(Link[User], authorized_user.user_id)
+    if user_id:
+        new_result_data["user"] = cast(Link[User], user_id)
 
     await Result(**new_result_data).insert()
 

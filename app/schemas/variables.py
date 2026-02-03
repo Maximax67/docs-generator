@@ -127,3 +127,18 @@ class SavedVariableResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class VariableBatchSaveItem(BaseModel):
+    id: PydanticObjectId = Field(..., description="Variable ID")
+    value: Any = Field(..., description="Value to save for this variable")
+
+
+class VariableBatchSaveRequest(BaseModel):
+    variables: list[VariableBatchSaveItem] = Field(
+        ..., min_length=1, max_length=100, description="List of variables to save"
+    )
+
+
+class VariableBatchSaveResponse(BaseModel):
+    variables: list[SavedVariableResponse]

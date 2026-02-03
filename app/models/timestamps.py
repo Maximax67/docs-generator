@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from beanie import (
-    Document,
     Insert,
     Replace,
     SaveChanges,
