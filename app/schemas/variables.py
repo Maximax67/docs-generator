@@ -53,6 +53,44 @@ class VariableCreate(BaseModel):
         return v
 
 
+class VariableUpdate(BaseModel):
+    variable: str | None = None
+    allow_save: bool | None = None
+    scope: str | None = None
+    required: bool | None = None
+    validation_schema: dict[str, Any] | None = None
+    value: Any | None = None
+
+    @field_validator("variable")
+    def validate_variable_name(cls: "VariableUpdate", v: str | None) -> str | None:
+        if v is None:
+            return v
+
+        if not v.strip():
+            raise ValueError("Variable name cannot be empty")
+
+        if len(v) > settings.MAX_VARIABLE_NAME:
+            raise ValueError(
+                f"Variable name cannot exceed {settings.MAX_VARIABLE_NAME} characters"
+            )
+
+        return v.strip()
+
+    @field_validator("validation_schema")
+    def validate_variable_schema(
+        cls: "VariableUpdate", v: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        if not v:
+            return None
+
+        try:
+            jsonschema.Draft202012Validator.check_schema(v)
+        except jsonschema.SchemaError as e:
+            raise ValueError(f"Variable schema error: {e}")
+
+        return v
+
+
 class VariableSchemaUpdate(BaseModel):
     scope: str | None = Field(
         default=None, description="Scope (folder/document ID) or None for global"

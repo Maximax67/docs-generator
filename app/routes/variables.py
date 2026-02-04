@@ -18,6 +18,7 @@ from app.schemas.variables import (
     VariableResponse,
     VariableSchemaResponse,
     VariableSchemaUpdate,
+    VariableUpdate,
     VariableValidateRequest,
     VariableSaveRequest,
     SavedVariableResponse,
@@ -580,7 +581,7 @@ async def get_variable(
     return VariableResponse(**var_dict)
 
 
-@router.put(
+@router.patch(
     "/{variable_id}",
     response_model=VariableResponse,
     responses=common_responses,
@@ -589,24 +590,11 @@ async def get_variable(
 @limiter.limit("5/minute")
 async def update_variable(
     variable_id: PydanticObjectId,
-    body: VariableCreate,
+    body: VariableUpdate,
     request: Request,
     response: Response,
     current_user: User = Depends(get_current_user),
 ) -> VariableResponse:
-    if body.value is not None and body.validation_schema is not None:
-        raise HTTPException(
-            status_code=400, detail="Variable cannot have both 'value' and 'schema'"
-        )
-
-    if body.scope:
-        try:
-            get_drive_item_metadata(body.scope)
-        except Exception:
-            raise HTTPException(
-                status_code=404, detail="Scope does not exist in Google Drive"
-            )
-
     existing = await Variable.find_one(
         Variable.id == variable_id,
         fetch_links=True,
@@ -615,17 +603,36 @@ async def update_variable(
     if not existing:
         raise HTTPException(status_code=404, detail="Variable not exists")
 
-    update_data = body.model_dump()
+    update_data = body.model_dump(exclude_unset=True)
+
+    final_value = update_data.get("value", existing.value)
+    final_schema = update_data.get("validation_schema", existing.validation_schema)
+
+    if final_value is not None and final_schema is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Variable cannot have both 'value' and 'schema'",
+        )
+
+    scope = update_data.get("scope", existing.scope)
+    if scope is not None:
+        try:
+            get_drive_item_metadata(scope)
+        except Exception:
+            raise HTTPException(
+                status_code=404,
+                detail="Scope does not exist in Google Drive",
+            )
+
     update_data["updated_by"] = current_user
 
     for key, value in update_data.items():
         setattr(existing, key, value)
 
     await existing.save()
-    variable = existing
 
-    overrides = await get_variable_overrides(variable.variable, variable.scope)
-    var_dict = variable.model_dump()
+    overrides = await get_variable_overrides(existing.variable, existing.scope)
+    var_dict = existing.model_dump()
     var_dict["overrides"] = overrides
 
     return VariableResponse(**var_dict)
