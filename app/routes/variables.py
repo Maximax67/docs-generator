@@ -388,7 +388,8 @@ async def get_saved_variables(
     page_size: int = Query(20, ge=1, le=100),
 ) -> Paginated[SavedVariableResponse]:
     query = SavedVariable.find(
-        SavedVariable.user.id == current_user.id  # type: ignore[attr-defined]
+        SavedVariable.user.id == current_user.id,  # type: ignore[attr-defined]
+        fetch_links=True,
     ).sort([("updated_at", SortDirection.DESCENDING)])
 
     items, meta = await paginate(query, page, page_size)
@@ -398,9 +399,8 @@ async def get_saved_variables(
     for item in items:
         saved_variables.append(
             SavedVariableResponse(
-                id=item.id,  # type: ignore[arg-type]
-                user=item.user.ref.id,
-                variable=item.variable.ref.id,
+                user=item.user.id,  # type: ignore[attr-defined]
+                variable=VariableResponse(**cast(Variable, item.variable).model_dump()),
                 value=item.value,
                 created_at=item.created_at,
                 updated_at=item.updated_at,
@@ -464,7 +464,9 @@ async def batch_save_variables(
     requested_ids = [item.id for item in body.variables]
     variables_map: dict[PydanticObjectId, Variable] = {
         v.id: v  # type: ignore[misc]
-        for v in await Variable.find(In(Variable.id, requested_ids)).to_list()
+        for v in await Variable.find(
+            In(Variable.id, requested_ids), fetch_links=True
+        ).to_list()
     }
 
     errors: dict[str, str] = {}
@@ -501,10 +503,11 @@ async def batch_save_variables(
     existing_docs = await SavedVariable.find(
         SavedVariable.user.id == current_user.id,  # type: ignore[attr-defined]
         In(SavedVariable.variable.id, requested_ids),  # type: ignore[attr-defined]
+        fetch_links=True,
     ).to_list()
 
     existing_map: dict[PydanticObjectId, SavedVariable] = {
-        doc.variable.ref.id: doc for doc in existing_docs
+        doc.variable.id: doc for doc in existing_docs  # type: ignore[attr-defined]
     }
 
     to_insert: list[SavedVariable] = []
@@ -546,19 +549,27 @@ async def batch_save_variables(
 
     for doc in to_update:
         doc.updated_at = now
-        saved_map[doc.variable.ref.id] = doc
+        saved_map[doc.variable.id] = doc  # type: ignore[attr-defined]
 
-    saved: list[SavedVariableResponse] = [
-        SavedVariableResponse(
-            id=sv.id,  # type: ignore[arg-type]
-            user=sv.user.ref.id,
-            variable=sv.variable.ref.id,
+    saved: list[SavedVariableResponse] = []
+
+    for sv in saved_map.values():
+        if isinstance(sv.variable, Variable):
+            var_id = cast(PydanticObjectId, sv.variable.id)
+            user_id = sv.user.id  # type: ignore[attr-defined]
+        else:
+            var_id = sv.variable.ref.id
+            user_id = sv.user.ref.id
+
+        var_response = VariableResponse(**variables_map[var_id].model_dump())
+        saved_var_response = SavedVariableResponse(
+            user=user_id,
+            variable=var_response,
             value=sv.value,
             created_at=sv.created_at,
             updated_at=sv.updated_at,
         )
-        for sv in saved_map.values()
-    ]
+        saved.append(saved_var_response)
 
     return VariableBatchSaveResponse(variables=saved)
 
@@ -635,7 +646,7 @@ async def update_variable(
     for key, value in update_data.items():
         setattr(existing, key, value)
 
-    await existing.save()
+    await existing.save_changes()
 
     overrides = await get_variable_overrides(existing.variable, existing.scope)
     var_dict = existing.model_dump()
@@ -752,7 +763,7 @@ async def save_variable_value(
     - Only works for variables with allow_save=True
     - Validates value against schema before saving
     """
-    variable = await Variable.get(variable_id)
+    variable = await Variable.get(variable_id, fetch_links=True)
     if not variable:
         raise HTTPException(status_code=404, detail="Variable not found")
 
@@ -777,12 +788,19 @@ async def save_variable_value(
     existing = await SavedVariable.find_one(
         SavedVariable.user.id == current_user.id,  # type: ignore[attr-defined]
         SavedVariable.variable.id == variable_id,  # type: ignore[attr-defined]
+        fetch_links=True,
     )
 
     if existing:
         existing.value = body.value
-        await existing.save()
-        return SavedVariableResponse(**existing.model_dump())
+        await existing.save_changes()
+        return SavedVariableResponse(
+            user=existing.user.id,  # type: ignore[attr-defined]
+            variable=VariableResponse(**existing.variable.model_dump()),  # type: ignore[attr-defined]
+            value=existing.value,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
     else:
         saved = SavedVariable(
             user=cast(Link[User], current_user.id),
@@ -790,7 +808,13 @@ async def save_variable_value(
             value=body.value,
         )
         await saved.insert()
-        return SavedVariableResponse(**saved.model_dump())
+        return SavedVariableResponse(
+            user=saved.user.ref.id,
+            variable=VariableResponse(**variable.model_dump()),
+            value=saved.value,
+            created_at=saved.created_at,
+            updated_at=saved.updated_at,
+        )
 
 
 @router.post(

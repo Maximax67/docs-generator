@@ -158,9 +158,8 @@ class VariableSaveRequest(BaseModel):
 
 
 class SavedVariableResponse(BaseModel):
-    id: PydanticObjectId
     user: PydanticObjectId
-    variable: PydanticObjectId
+    variable: VariableResponse
     value: Any
     created_at: datetime
     updated_at: datetime

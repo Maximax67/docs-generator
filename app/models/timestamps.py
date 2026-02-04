@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from beanie import (
     Insert,
     Replace,
+    Save,
     SaveChanges,
     Update,
     before_event,
@@ -18,6 +19,6 @@ class TimestampMixin:
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)
 
-    @before_event(Replace, SaveChanges, Update)
+    @before_event(Replace, Save, SaveChanges, Update)
     def update_timestamp(self) -> None:
         self.updated_at = datetime.now(timezone.utc)
