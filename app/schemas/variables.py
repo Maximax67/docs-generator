@@ -24,7 +24,7 @@ class VariableCreate(BaseModel):
 
     @field_validator("variable")
     def validate_variable_name(cls: "VariableCreate", v: str) -> str:
-        if not v or not v.strip():
+        if not v:
             raise ValueError("Variable name cannot be empty")
 
         if len(v) > settings.MAX_VARIABLE_NAME:
@@ -32,7 +32,11 @@ class VariableCreate(BaseModel):
                 f"Variable name cannot exceed {settings.MAX_VARIABLE_NAME} characters"
             )
 
-        return v.strip()
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Variable name cannot be empty")
+
+        return stripped
 
     @field_validator("validation_schema")
     def validate_variable_schema(
@@ -47,18 +51,6 @@ class VariableCreate(BaseModel):
             raise ValueError(f"Variable schema error: {e}")
 
         return v
-
-
-class VariableCompactResponse(BaseModel):
-    id: PydanticObjectId
-    scope: str | None = None
-    variable: str
-    value: Any | None = None
-
-
-class VariableSchemaResponse(BaseModel):
-    validation_schema: dict[str, Any]
-    variables: list[VariableCompactResponse]
 
 
 class VariableSchemaUpdate(BaseModel):
@@ -87,6 +79,11 @@ class VariableSchemaUpdate(BaseModel):
         return v
 
 
+class VariableOverride(BaseModel):
+    id: PydanticObjectId
+    scope: str
+
+
 class VariableResponse(BaseModel):
     id: PydanticObjectId
     variable: str
@@ -99,12 +96,17 @@ class VariableResponse(BaseModel):
     value: Any
     created_at: datetime
     updated_at: datetime
-    overrides: list[dict[str, Any]] = Field(
+    overrides: list[VariableOverride] = Field(
         default_factory=list, description="List of variables overridden by this one"
     )
 
     class Config:
         from_attributes = True
+
+
+class VariableSchemaResponse(BaseModel):
+    validation_schema: dict[str, Any]
+    variables: list[VariableResponse]
 
 
 class VariableValidateRequest(BaseModel):

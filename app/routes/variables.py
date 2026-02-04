@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, cast
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -13,7 +14,6 @@ from app.models import Variable, User, SavedVariable
 from app.schemas.common_responses import DetailResponse, Paginated
 from app.schemas.variables import (
     VariableBatchSaveResponse,
-    VariableCompactResponse,
     VariableCreate,
     VariableResponse,
     VariableSchemaResponse,
@@ -24,7 +24,7 @@ from app.schemas.variables import (
     VariableBatchSaveRequest,
 )
 from app.services.google_drive import get_drive_item_metadata, get_item_path
-from app.services.variables import get_variable_overrides
+from app.services.variables import build_overrides_map, get_variable_overrides
 from app.utils.paginate import paginate
 
 
@@ -132,11 +132,6 @@ async def create_variable(
             status_code=400, detail="Variable cannot have both 'value' and 'schema'"
         )
 
-    if body.value is None and body.validation_schema is None:
-        raise HTTPException(
-            status_code=400, detail="Variable must have either 'value' or 'schema'"
-        )
-
     if body.scope:
         try:
             get_drive_item_metadata(body.scope)
@@ -193,8 +188,6 @@ async def get_variables_schema(
 
     - **validation_schema**: JSON schema built from variables with exact scope match
     - **variables**: All variables for the scope and its parent scopes (hierarchical)
-
-    Returns variables with only: id, scope, variable, value fields
     """
 
     if scope:
@@ -203,13 +196,17 @@ async def get_variables_schema(
         except Exception:
             scope_chain = [scope]
 
-        all_vars = await Variable.find(In(Variable.scope, scope_chain)).to_list()
+        query: In | Eq = In(Variable.scope, scope_chain)
     else:
-        all_vars = await Variable.find(Eq(Variable.scope, None)).to_list()
+        query = Eq(Variable.scope, None)
+
+    all_vars = await Variable.find(query, fetch_links=True).to_list()
 
     properties: dict[str, Any] = {}
     required: list[str] = []
-    variables_list: list[VariableCompactResponse] = []
+    variables_list: list[VariableResponse] = []
+
+    overrides_map = build_overrides_map(all_vars, scope_chain if scope else None)
 
     for var in all_vars:
         if var.scope == scope and var.validation_schema:
@@ -217,14 +214,9 @@ async def get_variables_schema(
             if var.required:
                 required.append(var.variable)
 
-        variables_list.append(
-            VariableCompactResponse(
-                id=var.id,  # type: ignore
-                scope=var.scope,
-                variable=var.variable,
-                value=var.value,
-            )
-        )
+        var_dict = var.model_dump()
+        var_dict["overrides"] = overrides_map.get(str(var.id), [])
+        variables_list.append(VariableResponse(**var_dict))
 
     validation_schema = (
         {
@@ -266,7 +258,7 @@ async def update_variables_schema(
     Update all variables for a scope based on a JSON schema.
 
     - Extracts properties from schema as individual variables
-    - Updates existing variables, creates new ones, deletes unused ones
+    - Updates existing variables, creates new ones
     - Uses 'required' array to mark required variables
     """
 
@@ -297,13 +289,11 @@ async def update_variables_schema(
         )
 
     existing_vars = await Variable.find(Variable.scope == body.scope).to_list()
-
     existing_by_name = {v.variable: v for v in existing_vars}
     variable_names_in_schema = set(properties.keys())
 
-    created_count = 0
-    updated_count = 0
-    deleted_count = 0
+    to_insert: list[Variable] = []
+    to_update: list[Variable] = []
 
     for var_name, var_schema in properties.items():
         is_required = var_name in required_fields
@@ -314,34 +304,66 @@ async def update_variables_schema(
             existing.required = is_required
             existing.updated_by = cast(Link[User], current_user)
             existing.value = None
-            await existing.save()
-            updated_count += 1
+            to_update.append(existing)
         else:
-            new_var = Variable(
-                variable=var_name,
-                scope=body.scope,
-                validation_schema=var_schema,
-                required=is_required,
-                allow_save=False,
-                value=None,
-                created_by=cast(Link[User], current_user.id),
-                updated_by=cast(Link[User], current_user.id),
+            to_insert.append(
+                Variable(
+                    variable=var_name,
+                    scope=body.scope,
+                    validation_schema=var_schema,
+                    required=is_required,
+                    allow_save=False,
+                    value=None,
+                    created_by=cast(Link[User], current_user.id),
+                    updated_by=cast(Link[User], current_user.id),
+                )
             )
-            await new_var.insert()
-            created_count += 1
 
-    for var_name, existing_var in existing_by_name.items():
-        if var_name not in variable_names_in_schema:
-            await SavedVariable.find(
-                SavedVariable.variable.id  # type: ignore[attr-defined]
-                == existing_var.id
-            ).delete()
+    removed_var_ids = [
+        v.id
+        for var_name, v in existing_by_name.items()
+        if var_name not in variable_names_in_schema
+    ]
 
-            await existing_var.delete()
-            deleted_count += 1
+    created_count = 0
+    if to_insert:
+        await Variable.insert_many(to_insert)
+        created_count = len(to_insert)
+
+    updated_count = 0
+    if to_update:
+        now = datetime.now(timezone.utc)
+        operations = [
+            UpdateOne(
+                {"_id": doc.id},
+                {
+                    "$set": {
+                        "validation_schema": doc.validation_schema,
+                        "required": doc.required,
+                        "updated_by": doc.updated_by,
+                        "value": doc.value,
+                        "updated_at": now,
+                    }
+                },
+            )
+            for doc in to_update
+        ]
+        await Variable.get_pymongo_collection().bulk_write(operations)
+        updated_count += len(to_update)
+
+    if removed_var_ids:
+        now = datetime.now(timezone.utc)
+        result = await Variable.get_pymongo_collection().update_many(
+            {"_id": {"$in": removed_var_ids}},
+            {
+                "$set": {"required": False, "updated_at": now},
+                "$unset": {"validation_schema": ""},
+            },
+        )
+        updated_count += result.modified_count
 
     return DetailResponse(
-        detail=f"Schema updated: {created_count} created, {updated_count} updated, {deleted_count} deleted"
+        detail=f"Schema updated: {created_count} created, {updated_count} updated"
     )
 
 
@@ -363,9 +385,23 @@ async def get_saved_variables(
     ).sort([("updated_at", SortDirection.DESCENDING)])
 
     items, meta = await paginate(query, page, page_size)
+    items = cast(list[SavedVariable], items)
+
+    saved_variables: list[SavedVariableResponse] = []
+    for item in items:
+        saved_variables.append(
+            SavedVariableResponse(
+                id=item.id,  # type: ignore[arg-type]
+                user=item.user.ref.id,
+                variable=item.variable.ref.id,
+                value=item.value,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+            )
+        )
 
     return Paginated(
-        data=items,
+        data=saved_variables,
         meta=meta,
     )
 
@@ -420,7 +456,7 @@ async def batch_save_variables(
 ) -> VariableBatchSaveResponse | JSONResponse:
     requested_ids = [item.id for item in body.variables]
     variables_map: dict[PydanticObjectId, Variable] = {
-        v.id: v  # type: ignore
+        v.id: v  # type: ignore[misc]
         for v in await Variable.find(In(Variable.id, requested_ids)).to_list()
     }
 
@@ -461,7 +497,7 @@ async def batch_save_variables(
     ).to_list()
 
     existing_map: dict[PydanticObjectId, SavedVariable] = {
-        doc.variable.id: doc for doc in existing_docs  # type: ignore[attr-defined]
+        doc.variable.ref.id: doc for doc in existing_docs
     }
 
     to_insert: list[SavedVariable] = []
@@ -486,10 +522,11 @@ async def batch_save_variables(
         await SavedVariable.insert_many(to_insert)
 
     if to_update:
+        now = datetime.now(timezone.utc)
         operations = [
             UpdateOne(
                 {"_id": doc.id},
-                {"$set": {"value": doc.value}},
+                {"$set": {"value": doc.value, "updated_at": now}},
             )
             for doc in to_update
         ]
@@ -498,14 +535,22 @@ async def batch_save_variables(
     saved_map: dict[PydanticObjectId, SavedVariable] = {}
 
     for doc in to_insert:
-        saved_map[doc.variable.id] = doc  # type: ignore[attr-defined]
+        saved_map[doc.variable.ref.id] = doc
 
     for doc in to_update:
-        saved_map[doc.variable.id] = doc  # type: ignore[attr-defined]
+        doc.updated_at = now
+        saved_map[doc.variable.ref.id] = doc
 
     saved: list[SavedVariableResponse] = [
-        SavedVariableResponse(**saved_map[item.id].model_dump())
-        for item in body.variables
+        SavedVariableResponse(
+            id=sv.id,  # type: ignore[arg-type]
+            user=sv.user.ref.id,
+            variable=sv.variable.ref.id,
+            value=sv.value,
+            created_at=sv.created_at,
+            updated_at=sv.updated_at,
+        )
+        for sv in saved_map.values()
     ]
 
     return VariableBatchSaveResponse(variables=saved)
@@ -552,11 +597,6 @@ async def update_variable(
     if body.value is not None and body.validation_schema is not None:
         raise HTTPException(
             status_code=400, detail="Variable cannot have both 'value' and 'schema'"
-        )
-
-    if body.value is None and body.validation_schema is None:
-        raise HTTPException(
-            status_code=400, detail="Variable must have either 'value' or 'schema'"
         )
 
     if body.scope:
@@ -608,7 +648,6 @@ async def delete_variable(
     if not variable:
         raise HTTPException(status_code=404, detail="Variable not found")
 
-    # Delete all saved instances of this variable
     await SavedVariable.find(
         SavedVariable.variable.id == variable_id  # type: ignore[attr-defined]
     ).delete()

@@ -26,7 +26,8 @@ from app.services.documents import (
 )
 from app.schemas.auth import AuthorizedUser
 from app.schemas.documents import RegenerateDocumentRequest
-from app.models import Result, User
+from app.models import Generation, User
+from app.schemas.generations import GenerationResponse
 from app.schemas.common_responses import Paginated
 from app.dependencies import get_authorized_user, require_admin
 from app.exceptions import ValidationErrorsException
@@ -54,7 +55,7 @@ common_responses: dict[int | str, dict[str, Any]] = {
 
 @router.get(
     "",
-    response_model=Paginated[Result],
+    response_model=Paginated[GenerationResponse],
     responses={401: common_responses[401], 403: common_responses[403]},
 )
 @limiter.limit("10/minute")
@@ -66,7 +67,7 @@ async def get_generations(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     authorized_user: AuthorizedUser = Depends(require_admin),
-) -> Paginated[Result]:
+) -> Paginated[Generation]:
     query: dict[str, str | PydanticObjectId | None] = {}
 
     if user_id is None:
@@ -99,7 +100,7 @@ async def get_generations(
     if template_id:
         query["template_id"] = template_id
 
-    total_items = await Result.find(query).count()
+    total_items = await Generation.find(query).count()
     total_pages = max((total_items + page_size - 1) // page_size, 1)
     skip = (page - 1) * page_size
 
@@ -108,8 +109,8 @@ async def get_generations(
         del query["user.$id"]
         query["user._id"] = user_id_query
 
-    results = (
-        await Result.find(query, fetch_links=True)
+    generations = (
+        await Generation.find(query, fetch_links=True)
         .sort([("_id", SortDirection.DESCENDING)])
         .skip(skip)
         .limit(page_size)
@@ -123,7 +124,7 @@ async def get_generations(
         page_size=page_size,
     )
 
-    return Paginated(data=results, meta=meta)
+    return Paginated(data=generations, meta=meta)
 
 
 @router.delete(
@@ -147,30 +148,32 @@ async def delete_user_generated_documents(
     ) and authorized_user.role != UserRole.GOD:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    result = await Result.find(Result.user.id == user.id).delete()  # type: ignore
-    if not result:
+    generation = await Generation.find(Generation.user.id == user.id).delete()  # type: ignore
+    if not generation:
         raise HTTPException(status_code=404, detail="Generations not found")
 
-    return DetailResponse(detail=f"Deleted: {result.deleted_count}")
+    return DetailResponse(detail=f"Deleted: {generation.deleted_count}")
 
 
 @router.get(
-    "/{result_id}",
-    response_model=Result,
+    "/{generation_id}",
+    response_model=GenerationResponse,
     responses=common_responses,
 )
 @limiter.limit("10/minute")
 async def get_generation_by_id(
-    result_id: PydanticObjectId,
+    generation_id: PydanticObjectId,
     request: Request,
     response: Response,
     authorized_user: AuthorizedUser = Depends(get_authorized_user),
-) -> Result:
-    result = await Result.find_one(Result.id == result_id, fetch_links=True)
-    if not result:
+) -> Generation:
+    generation = await Generation.find_one(
+        Generation.id == generation_id, fetch_links=True
+    )
+    if not generation:
         raise HTTPException(status_code=404, detail="Generated document not found")
 
-    user = result.user
+    user = generation.user
 
     if user:
         if (
@@ -182,11 +185,11 @@ async def get_generation_by_id(
     elif authorized_user.role == UserRole.USER:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    return result
+    return generation
 
 
 @router.post(
-    "/{result_id}/regenerate",
+    "/{generation_id}/regenerate",
     response_model=None,
     responses={
         **common_responses,
@@ -202,7 +205,7 @@ async def get_generation_by_id(
 )
 @limiter.limit("5/minute")
 async def regenerate_by_id(
-    result_id: PydanticObjectId,
+    generation_id: PydanticObjectId,
     body: RegenerateDocumentRequest,
     background_tasks: BackgroundTasks,
     request: Request,
@@ -210,11 +213,13 @@ async def regenerate_by_id(
     format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
     authorized_user: AuthorizedUser = Depends(get_authorized_user),
 ) -> FileResponse | JSONResponse:
-    result = await Result.find_one(Result.id == result_id, fetch_links=True)
-    if not result:
+    generation = await Generation.find_one(
+        Generation.id == generation_id, fetch_links=True
+    )
+    if not generation:
         raise HTTPException(status_code=404, detail="Generated document not found")
 
-    user = result.user
+    user = generation.user
 
     if user:
         if (
@@ -226,11 +231,11 @@ async def regenerate_by_id(
     elif authorized_user.role == UserRole.USER:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    variables_to_use = body.variables if body.variables else result.variables
+    variables_to_use = body.variables if body.variables else generation.variables
     validate_document_generation_request(variables_to_use)
 
     try:
-        file_metadata = get_drive_item_metadata(result.template_id)
+        file_metadata = get_drive_item_metadata(generation.template_id)
     except Exception:
         raise HTTPException(
             status_code=404, detail="Template not found or access denied"
@@ -256,7 +261,7 @@ async def regenerate_by_id(
         filename, _ = os.path.splitext(file.name)
 
     new_result_data: dict[str, Any] = {
-        "template_id": result.template_id,
+        "template_id": generation.template_id,
         "template_name": filename,
         "variables": context,
         "format": format,
@@ -265,32 +270,32 @@ async def regenerate_by_id(
     if user_id:
         new_result_data["user"] = cast(Link[User], user_id)
 
-    await Result(**new_result_data).insert()
+    await Generation(**new_result_data).insert()
 
     return FileResponse(
         path=file_path,
-        filename=f"{result.template_id}.{format.value}",
+        filename=f"{generation.template_id}.{format.value}",
         media_type=FORMAT_TO_MIME[format],
     )
 
 
 @router.delete(
-    "/{result_id}",
+    "/{generation_id}",
     response_model=DetailResponse,
     responses=common_responses,
 )
 @limiter.limit("5/minute")
 async def delete_generation_by_id(
-    result_id: PydanticObjectId,
+    generation_id: PydanticObjectId,
     request: Request,
     response: Response,
     authorized_user: AuthorizedUser = Depends(require_admin),
 ) -> DetailResponse:
-    result = await Result.find_one(Result.id == result_id, fetch_links=True)
-    if not result:
+    generation = await Generation.find_one(Generation.id == generation_id, fetch_links=True)
+    if not generation:
         raise HTTPException(status_code=404, detail="Generated document not found")
 
-    user = cast(User | None, result.user)
+    user = cast(User | None, generation.user)
 
     if user:
         if (
@@ -300,6 +305,6 @@ async def delete_generation_by_id(
         ):
             raise HTTPException(status_code=403, detail="Forbidden")
 
-    await result.delete()
+    await generation.delete()
 
     return DetailResponse(detail="Deleted successfully")

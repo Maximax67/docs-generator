@@ -4,7 +4,7 @@ from .pinned_folder import PinnedFolder
 from .user import User
 from .variable import Variable
 from .saved_variable import SavedVariable
-from .result import Result
+from .generation import Generation
 from .session import Session
 
 
@@ -15,6 +15,6 @@ __all__ = [
     "User",
     "Variable",
     "SavedVariable",
-    "Result",
+    "Generation",
     "Session",
 ]

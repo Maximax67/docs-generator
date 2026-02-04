@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated
 from beanie import PydanticObjectId
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -29,9 +30,21 @@ class UserUpdateRequest(BaseModel):
         return v
 
 
+class UserResponse(BaseModel):
+    id: PydanticObjectId
+    email: str
+    first_name: str
+    last_name: str | None = None
+    is_banned: bool
+    email_verified: bool
+    role: UserRole
+    created_at: datetime
+    updated_at: datetime
+
+
 class UserPublicResponse(BaseModel):
     id: PydanticObjectId
     first_name: str
     last_name: str | None = None
     is_banned: bool
-    role: UserRole = UserRole.USER
+    role: UserRole

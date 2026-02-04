@@ -157,7 +157,7 @@ async def resolve_variables_for_generation(
     errors: dict[str, str] = {}
 
     for var_name, var_info in effective_vars.items():
-        if not var_info["id"]:
+        if not var_info.get("id"):
             # Variable not in database, accept user input if provided
             if var_name in user_provided_values:
                 context[var_name] = user_provided_values[var_name]
@@ -253,8 +253,52 @@ async def get_variable_overrides(
         {
             "id": str(var.id),
             "scope": var.scope,
-            "value": var.value,
-            "validation_schema": var.validation_schema,
         }
         for var in overridden
     ]
+
+
+def build_overrides_map(
+    all_vars: list[Variable],
+    scope_chain: list[str] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Pre-compute overrides for every variable in a single pass.
+    Returns {variable_id: [overrides]} sorted most specific → global.
+    """
+    if not scope_chain:
+        return {}
+
+    # Group variables by name
+    by_name: dict[str, list[Variable]] = {}
+    for var in all_vars:
+        by_name.setdefault(var.variable, []).append(var)
+
+    # Precompute scope priority once: lower index = more specific, None = last
+    scope_order = {s: i for i, s in enumerate(scope_chain)}
+    global_priority = len(scope_chain)
+
+    def scope_priority(v: Variable) -> int:
+        if v.scope is None:
+            return global_priority
+
+        return scope_order.get(v.scope, global_priority - 1)
+
+    overrides_map: dict[str, list[dict[str, Any]]] = {}
+
+    for group in by_name.values():
+        group.sort(key=scope_priority)
+
+        for var in group:
+            # Overrides = everything in the group that is less specific than this var
+            var_priority = scope_priority(var)
+            overrides_map[str(var.id)] = [
+                {
+                    "id": str(v.id),
+                    "scope": v.scope,
+                }
+                for v in group
+                if scope_priority(v) > var_priority
+            ]
+
+    return overrides_map

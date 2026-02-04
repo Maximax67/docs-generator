@@ -14,7 +14,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app.dependencies import get_authorized_user_optional
-from app.models import Result, User
+from app.models import Generation, User
 from app.schemas.google import DriveFile, DriveFileListResponse
 from app.schemas.documents import (
     DocumentDetails,
@@ -425,7 +425,7 @@ async def generate_document_with_variables(
     if authorized_user:
         result_data["user"] = cast(Link[User], authorized_user.user_id)
 
-    await Result(**result_data).insert()
+    await Generation(**result_data).insert()
 
     return FileResponse(
         path=file_path,

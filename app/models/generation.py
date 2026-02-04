@@ -6,7 +6,7 @@ from .timestamps import TimestampMixin
 from .user import User
 
 
-class Result(Document, TimestampMixin):
+class Generation(Document, TimestampMixin):
     user: Annotated[Link[User] | None, Indexed(sparse=True)] = None
     template_id: str
     template_name: str

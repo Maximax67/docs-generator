@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pymongo import ReturnDocument
@@ -7,12 +8,12 @@ from beanie import PydanticObjectId
 from app.enums import UserRole, UserStatus
 from app.limiter import limiter
 from app.schemas.common_responses import DetailResponse, Paginated
-from app.schemas.users import UserUpdateRequest
+from app.schemas.users import UserResponse, UserUpdateRequest
 from app.services.auth import clear_auth_cookies
 from app.services.users import update_user_bool_field
 from app.services.bloom_filter import bloom_filter
 from app.schemas.auth import AuthorizedUser
-from app.models import Result, Session, User
+from app.models import Generation, Session, User
 from app.dependencies import (
     authorize_user_or_admin,
     require_admin,
@@ -41,7 +42,7 @@ common_responses: dict[int | str, dict[str, Any]] = {
 
 @router.get(
     "",
-    response_model=Paginated[User],
+    response_model=Paginated[UserResponse],
     responses={403: common_responses[403]},
     dependencies=[Depends(require_admin)],
 )
@@ -95,7 +96,7 @@ async def get_all_users(
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
-    response_model=User,
+    response_model=UserResponse,
     responses={
         409: {
             "description": "User with this id already exists",
@@ -123,7 +124,7 @@ async def create_user(request: Request, response: Response, user: User) -> User:
 
 @router.get(
     "/{user_id}",
-    response_model=User,
+    response_model=UserResponse,
     responses=common_responses,
     dependencies=[Depends(authorize_user_or_admin)],
 )
@@ -140,7 +141,11 @@ async def get_user(
     return user
 
 
-@router.patch("/{user_id}", response_model=User, responses=common_responses)
+@router.patch(
+    "/{user_id}",
+    response_model=UserResponse,
+    responses=common_responses,
+)
 @limiter.limit("5/minute")
 async def update_user(
     user_id: PydanticObjectId,
@@ -169,9 +174,10 @@ async def update_user(
     if authorized_user.role != UserRole.GOD and authorized_user.user_id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    now = datetime.now(timezone.utc)
     updated_user: User | None = await User.get_pymongo_collection().find_one_and_update(
         {"_id": user_id},
-        {"$set": user_update.model_dump(exclude_unset=True)},
+        {"$set": {**user_update.model_dump(exclude_unset=True), "updated_at": now}},
         return_document=ReturnDocument.AFTER,
     )
     if not updated_user:
@@ -207,7 +213,7 @@ async def delete_user(
     await Session.find(
         Session.user.id == user_id  # type: ignore[attr-defined]
     ).delete()
-    await Result.find(Result.user.id == user_id).delete()  # type: ignore
+    await Generation.find(Generation.user.id == user_id).delete()  # type: ignore
     await user.delete()
 
     if authorized_user.user_id == user_id:
@@ -218,7 +224,7 @@ async def delete_user(
 
 @router.post(
     "/{user_id}/ban",
-    response_model=User,
+    response_model=UserResponse,
     responses={
         **common_responses,
         409: {
@@ -243,7 +249,7 @@ async def ban_user(
 
 @router.post(
     "/{user_id}/unban",
-    response_model=User,
+    response_model=UserResponse,
     responses={
         **common_responses,
         409: {
@@ -268,7 +274,7 @@ async def unban_user(
 
 @router.post(
     "/{user_id}/email/verify",
-    response_model=User,
+    response_model=UserResponse,
     responses={
         **common_responses,
         409: {
@@ -299,7 +305,7 @@ async def verify_email(
 
 @router.post(
     "/{user_id}/email/revoke-verification",
-    response_model=User,
+    response_model=UserResponse,
     responses={
         **common_responses,
         409: {

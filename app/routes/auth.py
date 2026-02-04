@@ -15,6 +15,7 @@ from app.schemas.auth import (
     EmailChangeRequest,
     SessionInfo,
 )
+from app.schemas.users import UserResponse
 from app.schemas.common_responses import DetailResponse
 from app.models import User, Session
 from app.services.auth import (
@@ -316,7 +317,7 @@ async def refresh(request: Request, response: Response) -> DetailResponse:
 
 @router.get(
     "/me",
-    response_model=User,
+    response_model=UserResponse,
     responses={
         401: {
             "description": "Not authenticated or invalid access token",
