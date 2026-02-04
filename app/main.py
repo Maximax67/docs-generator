@@ -15,7 +15,6 @@ from app.limiter import limiter
 from app.routes import api
 from app.settings import settings
 from app.models import (
-    Feedback,
     PinnedFolder,
     User,
     Generation,
@@ -33,7 +32,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_beanie(
         database=client["docs_generator"],
         document_models=[
-            Feedback,
             PinnedFolder,
             User,
             Generation,

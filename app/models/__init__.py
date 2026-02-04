@@ -1,4 +1,3 @@
-from .feedback import Feedback
 from .timestamps import TimestampMixin
 from .pinned_folder import PinnedFolder
 from .user import User
@@ -9,7 +8,6 @@ from .session import Session
 
 
 __all__ = [
-    "Feedback",
     "TimestampMixin",
     "PinnedFolder",
     "User",
