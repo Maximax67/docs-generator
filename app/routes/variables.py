@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, cast
+from bson import DBRef
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from beanie import Link, PydanticObjectId, SortDirection
@@ -298,15 +299,20 @@ async def update_variables_schema(
 
     for var_name, var_schema in properties.items():
         is_required = var_name in required_fields
+        dbref = cast(
+            Link[User],
+            DBRef(current_user.get_collection_name(), current_user.id),
+        )
 
         if var_name in existing_by_name:
             existing = existing_by_name[var_name]
             existing.validation_schema = var_schema
             existing.required = is_required
-            existing.updated_by = cast(Link[User], current_user)
+            existing.updated_by = dbref
             existing.value = None
             to_update.append(existing)
         else:
+
             to_insert.append(
                 Variable(
                     variable=var_name,
@@ -315,8 +321,8 @@ async def update_variables_schema(
                     required=is_required,
                     allow_save=False,
                     value=None,
-                    created_by=cast(Link[User], current_user.id),
-                    updated_by=cast(Link[User], current_user.id),
+                    created_by=dbref,
+                    updated_by=dbref,
                 )
             )
 
