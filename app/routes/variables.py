@@ -312,7 +312,6 @@ async def update_variables_schema(
             existing.value = None
             to_update.append(existing)
         else:
-
             to_insert.append(
                 Variable(
                     variable=var_name,

@@ -90,6 +90,9 @@ async def create_scope(
 
     is_folder = metadata["mimeType"] == DRIVE_FOLDER_MIME_TYPE
 
+    if not is_folder and body.restrictions.max_depth is not None:
+        raise HTTPException(status_code=400, detail="Only folders can have max depth")
+
     existing = await get_scope_by_drive_id(body.drive_id)
     if existing:
         raise HTTPException(status_code=409, detail="Scope already exists")
@@ -146,7 +149,12 @@ async def update_scope_restrictions(
     if not scope:
         raise HTTPException(status_code=404, detail="Scope not found")
 
-    scope.restrictions = ScopeRestrictions(**body.restrictions.model_dump())
+    if not scope.is_folder and body.restrictions.max_depth is not None:
+        raise HTTPException(status_code=400, detail="Only folders can have max depth")
+
+    scope.restrictions = ScopeRestrictions(
+        **body.restrictions.model_dump(exclude_none=False)
+    )
     scope.updated_by = cast(Link[User], current_user)
     await scope.save_changes()
 

@@ -28,6 +28,7 @@ from app.services.documents import (
     get_all_documents,
     get_document_variables_info,
     generate_document,
+    require_document_access,
     resolve_format,
     validate_document_generation_request,
     validate_document_mime_type,
@@ -53,6 +54,12 @@ common_responses: dict[int | str, dict[str, Any]] = {
             "application/json": {
                 "example": {"detail": "Document not found or access denied"}
             }
+        },
+    },
+    403: {
+        "description": "Access denied",
+        "content": {
+            "application/json": {"example": {"detail": "Admin access required"}}
         },
     },
     415: {
@@ -102,6 +109,8 @@ async def get_document(
     response: Response,
     authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> DocumentDetails:
+    await require_document_access(document_id, authorized_user)
+
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -150,8 +159,13 @@ async def get_document(
 )
 @limiter.limit("5/minute")
 async def get_document_file(
-    document_id: str, request: Request, response: Response
+    document_id: str,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> DriveFile:
+    await require_document_access(document_id, authorized_user)
+
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -177,6 +191,8 @@ async def get_variables_for_document(
     response: Response,
     authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> DocumentVariables:
+    await require_document_access(document_id, authorized_user)
+
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -221,8 +237,13 @@ async def get_variables_for_document(
 )
 @limiter.limit("5/minute")
 async def get_raw_document(
-    document_id: str, request: Request, response: Response
+    document_id: str,
+    request: Request,
+    response: Response,
+    authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> StreamingResponse:
+    await require_document_access(document_id, authorized_user)
+
     try:
         file_metadata = get_drive_item_metadata(document_id)
     except Exception:
@@ -275,7 +296,10 @@ async def preview_document(
     response: Response,
     format: DocumentResponseFormat = Query(DocumentResponseFormat.PDF),
     accept: str | None = Header(None),
+    authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> FileResponse:
+    await require_document_access(document_id, authorized_user)
+
     format = resolve_format(accept, format)
 
     try:
@@ -324,6 +348,8 @@ async def validate_provided_variables_for_document(
     response: Response,
     authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
 ) -> ValidationErrorsResponse | JSONResponse:
+    await require_document_access(document_id, authorized_user)
+
     validate_document_generation_request(body.variables)
 
     try:
@@ -379,6 +405,14 @@ async def generate_document_with_variables(
     """
     Generate document with user-provided variables.
 
+    Access control is enforced based on scope restrictions:
+    - access_level=ANY: Anyone can generate
+    - access_level=AUTHORIZED: Requires authentication
+    - access_level=EMAIL_VERIFIED: Requires verified email
+    - access_level=ADMIN: Requires admin/god role
+
+    Max depth also applies - documents beyond the configured depth are inaccessible.
+
     Variable resolution priority:
     1. Constants from database (cannot be overridden)
     2. User-provided values (validated against schema if configured)
@@ -386,6 +420,8 @@ async def generate_document_with_variables(
 
     If bypass_validation=true, skips all validation and uses user values as-is.
     """
+    await require_document_access(document_id, authorized_user)
+
     format = resolve_format(accept, format)
     validate_document_generation_request(body.variables)
 

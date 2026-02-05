@@ -56,21 +56,21 @@ class ScopeResponse(BaseModel):
         from_attributes = True
 
 
-class ScopeTree(BaseModel):
+class FolderTree(BaseModel):
     """Tree structure for scopes with access control."""
 
-    folders: list["ScopeTree"]
+    folders: list["FolderTree"]
     documents: list[DriveFile]
     current_folder: DriveFolder
 
 
-ScopeTree.model_rebuild()
+FolderTree.model_rebuild()
 
 
-class ScopeTreeGlobal(BaseModel):
+class FolderTreeGlobal(BaseModel):
     """Response containing scope tree."""
 
-    folders: list[ScopeTree]
+    folders: list[FolderTree]
     documents: list[DriveFile]
 
 

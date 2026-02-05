@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from app.dependencies import get_authorized_user_optional
 from app.limiter import limiter
 from app.schemas.auth import AuthorizedUser
-from app.schemas.scopes import ScopeTreeGlobal, ScopeTree
+from app.schemas.scopes import FolderTreeGlobal, FolderTree
 from app.services.google_drive import get_accessible_files_and_folders
 from app.services.tree import (
     build_children_map,
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/tree", tags=["tree"])
 
 @router.get(
     "",
-    response_model=ScopeTreeGlobal | ScopeTree,
+    response_model=FolderTreeGlobal | FolderTree,
     responses={
         404: {
             "description": "Folder not found",
@@ -47,7 +47,7 @@ async def get_tree(
         None, description="Optional folder ID to get tree for a specific folder"
     ),
     authorized_user: AuthorizedUser | None = Depends(get_authorized_user_optional),
-) -> ScopeTreeGlobal | ScopeTree:
+) -> FolderTreeGlobal | FolderTree:
     """
     Get tree structure for scopes.
 

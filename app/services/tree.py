@@ -6,7 +6,7 @@ from beanie.operators import Eq
 from app.constants import DOC_COMPATIBLE_MIME_TYPES, DRIVE_FOLDER_MIME_TYPE
 from app.models import Scope
 from app.schemas.auth import AuthorizedUser
-from app.schemas.scopes import ScopeTreeGlobal, ScopeTree
+from app.schemas.scopes import FolderTreeGlobal, FolderTree
 from app.schemas.google import DriveFile
 from app.services.google_drive import (
     ensure_folder,
@@ -35,12 +35,12 @@ def build_children_map(
 
 async def build_folder_tree(
     item: dict[str, Any],
-    parent_node: ScopeTree | None,
+    parent_node: FolderTree | None,
     depth_remaining: int | None,
     children_map: dict[str, list[dict[str, Any]]],
     authorized_user: AuthorizedUser | None,
     visited: set[str],
-) -> ScopeTree | None:
+) -> FolderTree | None:
     """Recursively build tree node with access control for a specific folder."""
     item_id = item["id"]
 
@@ -61,7 +61,7 @@ async def build_folder_tree(
 
     if is_folder:
         folder = format_drive_folder_metadata(item)
-        folder_tree = ScopeTree(current_folder=folder, documents=[], folders=[])
+        folder_tree = FolderTree(current_folder=folder, documents=[], folders=[])
 
         if parent_node is not None:
             parent_node.folders.append(folder_tree)
@@ -98,8 +98,8 @@ async def build_folder_tree(
 
 async def build_pinned_scopes_tree(
     item: dict[str, Any],
-    parent_node: ScopeTree | None,
-    roots: list[ScopeTree],
+    parent_node: FolderTree | None,
+    roots: list[FolderTree],
     root_documents: list[DriveFile],
     current_scope: Scope,
     remaining_depth: int | None,
@@ -129,7 +129,7 @@ async def build_pinned_scopes_tree(
 
     if is_folder:
         folder = format_drive_folder_metadata(item)
-        folder_tree = ScopeTree(current_folder=folder, documents=[], folders=[])
+        folder_tree = FolderTree(current_folder=folder, documents=[], folders=[])
 
         if parent_node is not None:
             parent_node.folders.append(folder_tree)
@@ -175,7 +175,7 @@ async def get_single_folder_tree(
     folder_id: str,
     children_map: dict[str, list[dict[str, Any]]],
     authorized_user: AuthorizedUser | None,
-) -> ScopeTree:
+) -> FolderTree:
     """Get tree for a single folder."""
     # Get the item metadata
     try:
@@ -203,7 +203,7 @@ async def get_single_folder_tree(
 
     if root_tree is None:
         folder = format_drive_folder_metadata(item_metadata)
-        return ScopeTree(folders=[], documents=[], current_folder=folder)
+        return FolderTree(folders=[], documents=[], current_folder=folder)
 
     return root_tree
 
@@ -211,7 +211,7 @@ async def get_single_folder_tree(
 async def get_all_pinned_scopes_tree(
     children_map: dict[str, list[dict[str, Any]]],
     authorized_user: AuthorizedUser | None,
-) -> ScopeTreeGlobal:
+) -> FolderTreeGlobal:
     """Get tree of all pinned scopes."""
     # Get all pinned scopes
     pinned_scopes = await Scope.find(
@@ -225,10 +225,10 @@ async def get_all_pinned_scopes_tree(
             accessible_scopes.append(scope)
 
     if not accessible_scopes:
-        return ScopeTreeGlobal(folders=[], documents=[])
+        return FolderTreeGlobal(folders=[], documents=[])
 
     # Build tree for each pinned scope
-    roots: list[ScopeTree] = []
+    roots: list[FolderTree] = []
     root_documents: list[DriveFile] = []
     visited: set[str] = set()  # Prevent infinite loops
 
@@ -260,4 +260,4 @@ async def get_all_pinned_scopes_tree(
             visited,
         )
 
-    return ScopeTreeGlobal(folders=roots, documents=root_documents)
+    return FolderTreeGlobal(folders=roots, documents=root_documents)

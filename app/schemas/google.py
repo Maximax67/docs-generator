@@ -37,28 +37,5 @@ class DriveFolder(DriveItem):
         return v
 
 
-class FolderContents(BaseModel):
-    folders: list[DriveFolder]
-    documents: list[DriveFile]
-    current_folder: DriveFolder
-
-
-class FolderTree(BaseModel):
-    folders: list["FolderTree"]
-    documents: list[DriveFile]
-    current_folder: DriveFolder
-
-
-FolderTree.model_rebuild()
-
-
-class FolderTreeResponse(BaseModel):
-    tree: list[FolderTree]
-
-
 class DriveFileListResponse(BaseModel):
     files: list[DriveFile]
-
-
-class FolderListResponse(BaseModel):
-    folders: list[DriveFolder]

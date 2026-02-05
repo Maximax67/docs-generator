@@ -221,6 +221,52 @@ async def logout_all(
     return DetailResponse(detail="All sessions terminated")
 
 
+@router.get(
+    "/sessions/{session_id}",
+    response_model=SessionInfo,
+    responses={
+        401: {
+            "description": "Not authenticated",
+            "content": {
+                "application/json": {"example": {"detail": "Not authenticated"}}
+            },
+        },
+        404: {
+            "description": "Session not found",
+            "content": {
+                "application/json": {"example": {"detail": "Session not found"}}
+            },
+        },
+    },
+)
+@limiter.limit("5/minute")
+async def get_session(
+    session_id: PydanticObjectId,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+) -> SessionInfo:
+    current_jti: str | None = None
+    access_cookie = request.cookies.get(settings.ACCESS_COOKIE_NAME)
+    if access_cookie:
+        try:
+            payload = decode_jwt_token(access_cookie)
+            current_jti = payload["jti"]
+        except Exception:
+            current_jti = None
+
+    s = await Session.find_one(Session.id == session_id, fetch_links=True)
+    if not s or s.user.id != current_user.id:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return SessionInfo(
+        id=s.id,  # type: ignore[arg-type]
+        name=s.name,
+        created_at=s.created_at,
+        updated_at=s.updated_at,
+        current=(current_jti is not None and s.access_jti == current_jti),
+    )
+
+
 @router.delete(
     "/sessions/{session_id}",
     response_model=DetailResponse,
