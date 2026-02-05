@@ -24,6 +24,13 @@ class DocumentResponseFormat(str, Enum):
     PDF = "pdf"
 
 
+class AccessLevel(str, Enum):
+    ANY = "any"
+    AUTHORIZED = "authorized"
+    EMAIL_VERIFIED = "email_verified"
+    ADMIN = "admin"
+
+
 FORMAT_TO_MIME = {
     DocumentResponseFormat.PDF: "application/pdf",
     DocumentResponseFormat.DOCX: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

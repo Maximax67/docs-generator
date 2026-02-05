@@ -8,6 +8,7 @@ from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import-unty
 from app.constants import (
     CHUNK_DOWNLOAD_THRESHOLD,
     DOC_COMPATIBLE_MIME_TYPES,
+    DRIVE_FOLDER_MIME_TYPE,
     MAX_DOWNLOAD_RETRIES,
 )
 from app.schemas.google import DriveFile, DriveFolder
@@ -156,7 +157,7 @@ def get_item_path(item_id: str) -> list[str]:
 
 
 def ensure_folder(mime_type: str) -> None:
-    if mime_type != "application/vnd.google-apps.folder":
+    if mime_type != DRIVE_FOLDER_MIME_TYPE:
         raise HTTPException(
             status_code=400,
             detail="The requested resource is not a folder",
@@ -233,5 +234,5 @@ def format_drive_folder_metadata(folder_data: dict[str, Any]) -> DriveFolder:
         created_time=created_time,
         modified_time=modified_time,
         web_view_link=folder_data.get("webViewLink"),
-        is_pinned=False,  # Requires database check
+        mime_type=folder_data["mimeType"],
     )

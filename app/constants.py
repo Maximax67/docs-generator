@@ -8,6 +8,7 @@ NAME_REGEX = re.compile(r"^[\p{L}]+(?:[’'\- ]\p{L}+)*$", re.UNICODE)
 
 GOOGLE_AUTH_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
+DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 DOC_COMPATIBLE_MIME_TYPES = [
     "application/vnd.google-apps.document",  # native Google Doc
     "application/msword",  # .doc

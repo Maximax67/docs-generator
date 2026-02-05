@@ -3,7 +3,8 @@ from fastapi import APIRouter, Request, Response
 
 from app.settings import settings
 from app.schemas.common_responses import DetailResponse
-from app.routes import auth, documents, folders, users, generations, variables
+from app.routes import auth, users, generations, variables
+from app.routes.drive import api as drive
 from app.limiter import limiter
 
 
@@ -28,7 +29,6 @@ def health_check(request: Request, response: Response) -> DetailResponse:
 
 router.include_router(auth.router)
 router.include_router(users.router)
-router.include_router(folders.router)
-router.include_router(documents.router)
+router.include_router(drive.router)
 router.include_router(generations.router)
 router.include_router(variables.router)

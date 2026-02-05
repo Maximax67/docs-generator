@@ -15,12 +15,12 @@ from app.limiter import limiter
 from app.routes import api
 from app.settings import settings
 from app.models import (
-    PinnedFolder,
     User,
     Generation,
     Session,
     Variable,
     SavedVariable,
+    Scope,
 )
 from app.utils.cleanup import periodic_cleanup
 
@@ -32,12 +32,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_beanie(
         database=client["docs_generator"],
         document_models=[
-            PinnedFolder,
             User,
             Generation,
             Session,
             Variable,
             SavedVariable,
+            Scope,
         ],
     )
 
