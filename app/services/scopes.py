@@ -25,7 +25,7 @@ def build_scope_map(scopes: list[Scope]) -> dict[str, Scope]:
     return {scope.drive_id: scope for scope in scopes}
 
 
-def check_user_has_access(
+def check_user_has_scope_access(
     scope: Scope,
     authorized_user: AuthorizedUser | None,
 ) -> bool:
@@ -64,63 +64,25 @@ def check_user_has_access(
     return False
 
 
-def find_effective_scope_from_path(
+def is_item_access_allowed(
     item_path: list[str],
     scope_map: dict[str, Scope],
     authorized_user: AuthorizedUser | None,
-) -> tuple[Scope | None, int]:
-    """
-    Find the most specific (narrowest) scope that applies to an item and check access.
-
-    Args:
-        item_path: Path from root to item [root, ..., item]
-        scope_map: Map of drive_id -> Scope
-        authorized_user: Current user (None if unauthenticated)
-
-    Returns:
-        Tuple of (scope, depth_from_scope)
-        - scope: The most specific scope, or None if no access
-        - depth_from_scope: How deep the item is from the scope (0 = scope itself)
-    """
-    # Find the most specific scope in the path (rightmost/deepest)
-    most_specific_scope = None
-    scope_index = -1
+) -> bool:
+    depth_from_root = len(item_path) - 1
+    has_scopes = False
 
     for i, drive_id in enumerate(item_path):
-        if drive_id in scope_map:
-            most_specific_scope = scope_map[drive_id]
-            scope_index = i
+        scope = scope_map.get(drive_id)
+        if scope and (
+            scope.restrictions.max_depth is None
+            or i + scope.restrictions.max_depth >= depth_from_root
+        ):
+            has_scopes = True
+            if not check_user_has_scope_access(scope, authorized_user):
+                return False
 
-    if most_specific_scope is None:
-        return None, -1
-
-    if not check_user_has_access(most_specific_scope, authorized_user):
-        return None, -1
-
-    # Calculate depth from scope to item
-    depth_from_scope = len(item_path) - scope_index - 1
-
-    return most_specific_scope, depth_from_scope
-
-
-def is_item_accessible(
-    depth_from_scope: int,
-    max_depth: int | None,
-) -> bool:
-    """
-    Check if an item is accessible based on depth constraints.
-
-    Args:
-        depth_from_scope: How deep the item is from its scope (0 = scope itself)
-        max_depth: Maximum allowed depth (None = infinite)
-
-    Returns:
-        True if accessible, False otherwise
-    """
-    if max_depth is None:
-        return True
-
-    return depth_from_scope <= max_depth
+    return has_scopes
 
 
 async def check_document_access(
@@ -137,7 +99,6 @@ async def check_document_access(
     Returns:
         Tuple of (has_access: bool, reason: str)
     """
-    # Get all scopes once
     all_scopes = await get_all_scopes()
 
     if not all_scopes:
@@ -145,45 +106,29 @@ async def check_document_access(
 
     scope_map = build_scope_map(all_scopes)
 
-    # Get document metadata to check if it's a folder
     try:
         doc_metadata = get_drive_item_metadata(document_id)
         is_folder = doc_metadata.get("mimeType") == DRIVE_FOLDER_MIME_TYPE
     except Exception:
         return False, "Document not found in Google Drive"
 
-    # Get document's path in the drive hierarchy
     try:
-        item_path = get_item_path(document_id)
+        if is_folder:
+            item_path = get_item_path(document_id)
+        else:
+            item_parents = doc_metadata.get("parents")
+            if item_parents:
+                file_parent = item_parents[0]
+                item_path = get_item_path(document_id, file_parent)
+            else:
+                item_path = [document_id]
     except Exception:
         return False, "Cannot determine document location"
 
-    # Find effective scope
-    scope, depth_from_scope = find_effective_scope_from_path(
-        item_path,
-        scope_map,
-        authorized_user,
-    )
-
-    if scope is None:
+    if not is_item_access_allowed(item_path, scope_map, authorized_user):
         return False, "Forbidden"
 
-    # Check depth restrictions
-    max_depth = scope.restrictions.max_depth
-
-    if not is_item_accessible(depth_from_scope, max_depth):
-        return (
-            False,
-            f"{'Folder' if is_folder else 'Document'} exceeds maximum depth "
-            f"({depth_from_scope} > {max_depth})",
-        )
-
-    # Access granted
-    access_level = scope.restrictions.access_level
-
-    print(f"Access granted via {access_level.value} scope")
-
-    return True, f"Access granted via {access_level.value} scope"
+    return True, "Access granted"
 
 
 async def require_document_access(

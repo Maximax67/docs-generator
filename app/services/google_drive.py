@@ -117,13 +117,16 @@ def get_folder_path(folder_id: str) -> list[str]:
     return path
 
 
-def get_item_path(item_id: str) -> list[str]:
+def get_item_path(item_id: str, file_parent: str | None = None) -> list[str]:
     graph = get_folder_graph()
 
     path: list[str] = []
 
     if item_id in graph:
         current_id = item_id
+    elif file_parent:
+        current_id = file_parent
+        path.append(item_id)
     else:
         # Probably a file
         metadata: dict[str, Any] = (
@@ -137,7 +140,7 @@ def get_item_path(item_id: str) -> list[str]:
 
         parents = metadata.get("parents", [])
         if not parents:
-            return []
+            return [item_id]
 
         current_id = parents[0]
         path.append(item_id)
@@ -194,7 +197,7 @@ def get_drive_item_metadata(file_id: str) -> dict[str, Any]:
         drive_client.files()
         .get(
             fileId=file_id,
-            fields="id, name, mimeType, modifiedTime, createdTime, webViewLink, size",
+            fields="id, name, mimeType, modifiedTime, createdTime, webViewLink, size, parents",
         )
         .execute()
     )
@@ -210,6 +213,7 @@ def format_drive_file_metadata(file_data: dict[str, Any]) -> DriveFile:
     created_time = parse_google_datetime(file_data["createdTime"])
     modified_time = parse_google_datetime(file_data["modifiedTime"])
 
+    parents = file_data.get("parents")
     size_str: str | None = file_data.get("size")
     size = int(size_str) if size_str else None
 
@@ -220,6 +224,7 @@ def format_drive_file_metadata(file_data: dict[str, Any]) -> DriveFile:
         modified_time=modified_time,
         web_view_link=file_data.get("webViewLink"),
         mime_type=file_data["mimeType"],
+        parent=parents[0] if parents else None,
         size=size,
     )
 
@@ -227,6 +232,7 @@ def format_drive_file_metadata(file_data: dict[str, Any]) -> DriveFile:
 def format_drive_folder_metadata(folder_data: dict[str, Any]) -> DriveFolder:
     created_time = parse_google_datetime(folder_data["createdTime"])
     modified_time = parse_google_datetime(folder_data["modifiedTime"])
+    parents = folder_data.get("parents")
 
     return DriveFolder(
         id=folder_data["id"],
@@ -235,4 +241,5 @@ def format_drive_folder_metadata(folder_data: dict[str, Any]) -> DriveFolder:
         modified_time=modified_time,
         web_view_link=folder_data.get("webViewLink"),
         mime_type=folder_data["mimeType"],
+        parent=parents[0] if parents else None,
     )

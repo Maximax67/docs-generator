@@ -10,6 +10,7 @@ class DriveItem(BaseModel):
     modified_time: datetime
     created_time: datetime
     web_view_link: str | None = None
+    parent: str | None
 
 
 class DriveFile(DriveItem):
