@@ -6,7 +6,7 @@ from beanie.operators import Eq
 from app.constants import DOC_COMPATIBLE_MIME_TYPES, DRIVE_FOLDER_MIME_TYPE
 from app.models import Scope
 from app.schemas.auth import AuthorizedUser
-from app.schemas.scopes import FolderTreeGlobal, FolderTree
+from app.schemas.scopes import FolderTree
 from app.schemas.google import DriveFile
 from app.services.google_drive import (
     ensure_folder,
@@ -211,7 +211,7 @@ async def get_single_folder_tree(
 async def get_all_pinned_scopes_tree(
     children_map: dict[str, list[dict[str, Any]]],
     authorized_user: AuthorizedUser | None,
-) -> FolderTreeGlobal:
+) -> FolderTree:
     """Get tree of all pinned scopes."""
     # Get all pinned scopes
     pinned_scopes = await Scope.find(
@@ -225,7 +225,7 @@ async def get_all_pinned_scopes_tree(
             accessible_scopes.append(scope)
 
     if not accessible_scopes:
-        return FolderTreeGlobal(folders=[], documents=[])
+        return FolderTree(folders=[], documents=[])
 
     # Build tree for each pinned scope
     roots: list[FolderTree] = []
@@ -260,4 +260,4 @@ async def get_all_pinned_scopes_tree(
             visited,
         )
 
-    return FolderTreeGlobal(folders=roots, documents=root_documents)
+    return FolderTree(folders=roots, documents=root_documents)

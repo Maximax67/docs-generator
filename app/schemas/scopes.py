@@ -61,17 +61,10 @@ class FolderTree(BaseModel):
 
     folders: list["FolderTree"]
     documents: list[DriveFile]
-    current_folder: DriveFolder
+    current_folder: DriveFolder | None = None
 
 
 FolderTree.model_rebuild()
-
-
-class FolderTreeGlobal(BaseModel):
-    """Response containing scope tree."""
-
-    folders: list[FolderTree]
-    documents: list[DriveFile]
 
 
 class ScopeListResponse(BaseModel):
