@@ -122,29 +122,24 @@ async def get_effective_scope_for_item(
         except Exception:
             return None, None
 
-    # Get all scopes
     all_scopes = await get_all_scopes()
+    path_index = {drive_id: i for i, drive_id in enumerate(item_path)}
 
-    # Find scopes that could apply to this item
-    applicable_scopes: list[tuple[Scope, int]] = []
+    most_specific_scope = None
+    max_scope_index = -1
 
     for scope in all_scopes:
-        # Check if scope is in the item's path
-        if scope.drive_id in item_path:
-            # Check user has access to this scope
-            if not await check_user_has_access(scope, authorized_user):
-                continue
+        idx = path_index.get(scope.drive_id)
+        if idx is not None and idx > max_scope_index:
+            max_scope_index = idx
+            most_specific_scope = scope
 
-            # Calculate depth
-            scope_index = item_path.index(scope.drive_id)
-            applicable_scopes.append((scope, scope_index))
-
-    if not applicable_scopes:
+    if most_specific_scope is None:
         return None, None
 
-    # Use the most specific scope (furthest down the tree)
-    applicable_scopes.sort(key=lambda x: x[1], reverse=True)
-    most_specific_scope, scope_index = applicable_scopes[0]
+    # Check user has access to this most specific scope
+    if not await check_user_has_access(most_specific_scope, authorized_user):
+        return None, None
 
     # Calculate remaining depth
     remaining_depth = calculate_accessible_depth(
@@ -197,6 +192,7 @@ async def filter_items_by_access(
 
         if is_folder:
             # Folders are only accessible if we have depth > 0
+            # (to hide folders with restricted content)
             if remaining_depth > 0:
                 accessible_items.append(item)
         else:

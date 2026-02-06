@@ -295,7 +295,7 @@ async def check_document_access(
     all_scopes = await Scope.find_all(fetch_links=True).to_list()
 
     if not all_scopes:
-        # No scopes configured = open access
+        # No scopes configured = deny access
         return False, "No scope restrictions configured"
 
     # Get document metadata to check if it's a folder
@@ -312,25 +312,24 @@ async def check_document_access(
         # If we can't get the path, deny access
         return False, "Cannot determine document location"
 
-    # Find the most specific scope that applies to this document
-    applicable_scopes: list[tuple[Scope, int]] = []
+    # Find ALL scopes that apply to this document (scopes in the path)
+    path_index = {drive_id: i for i, drive_id in enumerate(item_path)}
+    most_specific_scope = None
+    max_scope_index = -1
 
     for scope in all_scopes:
-        if scope.drive_id not in item_path:
-            continue
+        idx = path_index.get(scope.drive_id)
+        if idx is not None and idx > max_scope_index:
+            max_scope_index = idx
+            most_specific_scope = scope
 
-        # Found a scope in the path
-        scope_index = item_path.index(scope.drive_id)
-        applicable_scopes.append((scope, scope_index))
-
-    if not applicable_scopes:
+    if most_specific_scope is None:
         return False, "Document not under any scope"
 
-    # Use the most specific scope (furthest down the tree)
-    applicable_scopes.sort(key=lambda x: x[1], reverse=True)
-    most_specific_scope, scope_index = applicable_scopes[0]
+    scope_index = max_scope_index
 
     # Calculate depth from scope to document
+    # depth 0 = scope itself, depth 1 = direct child, etc.
     current_depth = len(item_path) - scope_index - 1
 
     # Check depth restrictions
