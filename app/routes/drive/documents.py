@@ -28,7 +28,6 @@ from app.services.documents import (
     get_all_documents,
     get_document_variables_info,
     generate_document,
-    require_document_access,
     resolve_format,
     validate_document_generation_request,
     validate_document_mime_type,
@@ -44,6 +43,7 @@ from app.limiter import limiter
 from beanie import Link
 from app.enums import FORMAT_TO_MIME, DocumentResponseFormat
 from app.schemas.auth import AuthorizedUser
+from app.services.scopes import require_document_access
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 

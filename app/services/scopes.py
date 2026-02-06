@@ -1,15 +1,18 @@
-from typing import Any
+from fastapi import HTTPException
 
 from app.enums import AccessLevel, UserRole
 from app.models import Scope
 from app.schemas.auth import AuthorizedUser
-from app.services.google_drive import get_folder_path, get_drive_item_metadata
+from app.services.google_drive import (
+    get_drive_item_metadata,
+    get_item_path,
+)
 from app.constants import DRIVE_FOLDER_MIME_TYPE
 
 
 async def get_all_scopes() -> list[Scope]:
     """Get all scopes from database."""
-    return await Scope.find_all(fetch_links=True).to_list()
+    return await Scope.find_all().to_list()
 
 
 async def get_scope_by_drive_id(drive_id: str) -> Scope | None:
@@ -17,7 +20,12 @@ async def get_scope_by_drive_id(drive_id: str) -> Scope | None:
     return await Scope.find_one(Scope.drive_id == drive_id, fetch_links=True)
 
 
-async def check_user_has_access(
+def build_scope_map(scopes: list[Scope]) -> dict[str, Scope]:
+    """Build a map of drive_id -> Scope for O(1) lookups."""
+    return {scope.drive_id: scope for scope in scopes}
+
+
+def check_user_has_access(
     scope: Scope,
     authorized_user: AuthorizedUser | None,
 ) -> bool:
@@ -56,148 +64,168 @@ async def check_user_has_access(
     return False
 
 
-def calculate_accessible_depth(
+def find_effective_scope_from_path(
     item_path: list[str],
-    scope_drive_id: str,
+    scope_map: dict[str, Scope],
+    authorized_user: AuthorizedUser | None,
+) -> tuple[Scope | None, int]:
+    """
+    Find the most specific (narrowest) scope that applies to an item and check access.
+
+    Args:
+        item_path: Path from root to item [root, ..., item]
+        scope_map: Map of drive_id -> Scope
+        authorized_user: Current user (None if unauthenticated)
+
+    Returns:
+        Tuple of (scope, depth_from_scope)
+        - scope: The most specific scope, or None if no access
+        - depth_from_scope: How deep the item is from the scope (0 = scope itself)
+    """
+    # Find the most specific scope in the path (rightmost/deepest)
+    most_specific_scope = None
+    scope_index = -1
+
+    for i, drive_id in enumerate(item_path):
+        if drive_id in scope_map:
+            most_specific_scope = scope_map[drive_id]
+            scope_index = i
+
+    if most_specific_scope is None:
+        return None, -1
+
+    if not check_user_has_access(most_specific_scope, authorized_user):
+        return None, -1
+
+    # Calculate depth from scope to item
+    depth_from_scope = len(item_path) - scope_index - 1
+
+    return most_specific_scope, depth_from_scope
+
+
+def is_item_accessible(
+    depth_from_scope: int,
+    max_depth: int | None,
+) -> bool:
+    """
+    Check if an item is accessible based on depth constraints.
+
+    Args:
+        depth_from_scope: How deep the item is from its scope (0 = scope itself)
+        max_depth: Maximum allowed depth (None = infinite)
+
+    Returns:
+        True if accessible, False otherwise
+    """
+    if max_depth is None:
+        return True
+
+    return depth_from_scope <= max_depth
+
+
+async def check_document_access(
+    document_id: str,
+    authorized_user: AuthorizedUser | None,
+) -> tuple[bool, str]:
+    """
+    Check if user has access to a document based on scope restrictions.
+
+    Args:
+        document_id: Google Drive document ID
+        authorized_user: Current user (None if unauthenticated)
+
+    Returns:
+        Tuple of (has_access: bool, reason: str)
+    """
+    # Get all scopes once
+    all_scopes = await get_all_scopes()
+
+    if not all_scopes:
+        return False, "No scope restrictions configured"
+
+    scope_map = build_scope_map(all_scopes)
+
+    # Get document metadata to check if it's a folder
+    try:
+        doc_metadata = get_drive_item_metadata(document_id)
+        is_folder = doc_metadata.get("mimeType") == DRIVE_FOLDER_MIME_TYPE
+    except Exception:
+        return False, "Document not found in Google Drive"
+
+    # Get document's path in the drive hierarchy
+    try:
+        item_path = get_item_path(document_id)
+    except Exception:
+        return False, "Cannot determine document location"
+
+    # Find effective scope
+    scope, depth_from_scope = find_effective_scope_from_path(
+        item_path,
+        scope_map,
+        authorized_user,
+    )
+
+    if scope is None:
+        return False, "Forbidden"
+
+    # Check depth restrictions
+    max_depth = scope.restrictions.max_depth
+
+    if not is_item_accessible(depth_from_scope, max_depth):
+        return (
+            False,
+            f"{'Folder' if is_folder else 'Document'} exceeds maximum depth "
+            f"({depth_from_scope} > {max_depth})",
+        )
+
+    # Access granted
+    access_level = scope.restrictions.access_level
+
+    print(f"Access granted via {access_level.value} scope")
+
+    return True, f"Access granted via {access_level.value} scope"
+
+
+async def require_document_access(
+    document_id: str,
+    authorized_user: AuthorizedUser | None,
+) -> None:
+    """
+    Enforce document access or raise HTTPException.
+
+    Raises:
+        HTTPException: 403 if access denied, 404 if document not found
+    """
+    # GOD users bypass all checks
+    if authorized_user and authorized_user.role == UserRole.GOD:
+        return
+
+    has_access, reason = await check_document_access(document_id, authorized_user)
+
+    if not has_access:
+        if "not found" in reason.lower():
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found or access denied",
+            )
+        raise HTTPException(status_code=403, detail=reason)
+
+
+def calculate_remaining_depth(
+    depth_from_scope: int,
     max_depth: int | None,
 ) -> int | None:
     """
-    Calculate how many more levels down from current item are accessible.
+    Calculate how many more levels down are accessible.
 
     Args:
-        item_path: Path from root to current item [root, ..., current_item]
-        scope_drive_id: The scope's drive_id
-        max_depth: Maximum depth from scope (None = infinite)
+        depth_from_scope: Current depth from scope
+        max_depth: Maximum allowed depth (None = infinite)
 
     Returns:
-        Remaining depth from current position, or None for infinite
+        Remaining depth, or None for infinite
     """
     if max_depth is None:
         return None
 
-    try:
-        scope_index = item_path.index(scope_drive_id)
-    except ValueError:
-        # Item is not in scope path - no access
-        return -1
-
-    # Calculate how far we are from scope
-    current_depth = len(item_path) - scope_index - 1
-
-    # Calculate remaining depth
-    remaining = max_depth - current_depth
-
-    return remaining
-
-
-async def get_effective_scope_for_item(
-    drive_id: str,
-    authorized_user: AuthorizedUser | None,
-) -> tuple[Scope | None, int | None]:
-    """
-    Get the effective scope for a Google Drive item.
-
-    Finds the most specific scope that applies to this item and checks access.
-
-    Args:
-        drive_id: Google Drive item ID
-        authorized_user: Current user (None if unauthenticated)
-
-    Returns:
-        Tuple of (scope, remaining_depth) or (None, None) if no access
-        remaining_depth is how many levels down are accessible (None = infinite)
-    """
-    # Get item's path in drive hierarchy
-    try:
-        item_path = get_folder_path(drive_id)
-    except Exception:
-        # Item might be a file, try getting its metadata to find parent
-        try:
-            metadata = get_drive_item_metadata(drive_id)
-            parents = metadata.get("parents", [])
-            if parents:
-                item_path = get_folder_path(parents[0]) + [drive_id]
-            else:
-                item_path = [drive_id]
-        except Exception:
-            return None, None
-
-    all_scopes = await get_all_scopes()
-    path_index = {drive_id: i for i, drive_id in enumerate(item_path)}
-
-    most_specific_scope = None
-    max_scope_index = -1
-
-    for scope in all_scopes:
-        idx = path_index.get(scope.drive_id)
-        if idx is not None and idx > max_scope_index:
-            max_scope_index = idx
-            most_specific_scope = scope
-
-    if most_specific_scope is None:
-        return None, None
-
-    # Check user has access to this most specific scope
-    if not await check_user_has_access(most_specific_scope, authorized_user):
-        return None, None
-
-    # Calculate remaining depth
-    remaining_depth = calculate_accessible_depth(
-        item_path,
-        most_specific_scope.drive_id,
-        most_specific_scope.restrictions.max_depth,
-    )
-
-    if remaining_depth is not None and remaining_depth < 0:
-        return None, None
-
-    return most_specific_scope, remaining_depth
-
-
-async def filter_items_by_access(
-    items: list[dict[str, Any]],
-    parent_drive_id: str,
-    authorized_user: AuthorizedUser | None,
-) -> list[dict[str, Any]]:
-    """
-    Filter Google Drive items based on scope access control.
-
-    Args:
-        items: List of Google Drive items
-        parent_drive_id: Parent folder drive ID
-        authorized_user: Current user (None if unauthenticated)
-
-    Returns:
-        Filtered list of items user has access to
-    """
-    # Get effective scope for parent
-    scope, remaining_depth = await get_effective_scope_for_item(
-        parent_drive_id,
-        authorized_user,
-    )
-
-    # No access to parent = no access to children
-    if scope is None:
-        return []
-
-    # Infinite depth = return all items
-    if remaining_depth is None:
-        return items
-
-    accessible_items: list[dict[str, Any]] = []
-
-    for item in items:
-        mime_type = item.get("mimeType", "")
-        is_folder = mime_type == DRIVE_FOLDER_MIME_TYPE
-
-        if is_folder:
-            # Folders are only accessible if we have depth > 0
-            # (to hide folders with restricted content)
-            if remaining_depth > 0:
-                accessible_items.append(item)
-        else:
-            # Files are accessible at depth >= 0
-            if remaining_depth >= 0:
-                accessible_items.append(item)
-
-    return accessible_items
+    return max_depth - depth_from_scope
