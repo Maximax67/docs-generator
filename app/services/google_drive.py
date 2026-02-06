@@ -18,6 +18,12 @@ from app.google_credentials import credentials
 drive_client = build("drive", "v3", credentials=credentials)
 
 folder_graph_cache: TTLCache[Hashable, dict[str, Any]] = TTLCache(maxsize=1, ttl=60)
+files_and_folders_cache: TTLCache[Hashable, list[dict[str, Any]]] = TTLCache(
+    maxsize=1, ttl=60
+)
+drive_metadata_cache: TTLCache[Hashable, dict[str, Any]] = TTLCache(
+    maxsize=1024, ttl=60
+)
 
 
 def get_results_by_query(
@@ -47,16 +53,13 @@ def get_results_by_query(
     return results
 
 
-def get_folder_contents(folder_id: str) -> list[dict[str, Any]]:
-    return get_results_by_query(f"'{folder_id}' in parents")
-
-
 def get_accessible_folders() -> list[dict[str, Any]]:
     return get_results_by_query(
         "mimeType='application/vnd.google-apps.folder' and trashed=false"
     )
 
 
+@cached(files_and_folders_cache)
 def get_accessible_files_and_folders() -> list[dict[str, Any]]:
     mime_types_query = " or ".join(
         [f"mimeType='{mime}'" for mime in DOC_COMPATIBLE_MIME_TYPES]
@@ -192,6 +195,7 @@ def download_file(
         out.write(file_content)
 
 
+@cached(drive_metadata_cache)
 def get_drive_item_metadata(file_id: str) -> dict[str, Any]:
     metadata: dict[str, Any] = (
         drive_client.files()

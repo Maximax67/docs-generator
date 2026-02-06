@@ -8,16 +8,6 @@ from .user import User
 
 
 class ScopeRestrictions(BaseModel):
-    """Restrictions for scope access.
-
-    Depth hierarchy:
-    - 0: Only this item
-    - 1: Files inside folder, no subfolders
-    - 2: Files + subfolders; inside subfolders → files only
-    - 3: Files + subfolders + next level folders, etc
-    - None: Infinite access
-    """
-
     access_level: AccessLevel = Field(
         default=AccessLevel.ANY, description="Who can access this scope"
     )

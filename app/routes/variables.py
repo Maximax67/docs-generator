@@ -80,7 +80,7 @@ async def get_variables(
             # Get scope chain for hierarchical filtering
             try:
                 scope_chain = get_item_path(scope)
-                query_filters.append(In(Variable.scope, scope_chain))
+                query_filters.append(In(Variable.scope, scope_chain + [None]))
             except Exception:
                 # If scope is invalid, just filter by exact scope
                 query_filters.append(Variable.scope == scope)
@@ -198,7 +198,7 @@ async def get_variables_schema(
         except Exception:
             scope_chain = [scope]
 
-        query: In | Eq = In(Variable.scope, scope_chain)
+        query: In | Eq = In(Variable.scope, scope_chain + [None])
     else:
         query = Eq(Variable.scope, None)
 
@@ -297,12 +297,13 @@ async def update_variables_schema(
     to_insert: list[Variable] = []
     to_update: list[Variable] = []
 
+    dbref = cast(
+        Link[User],
+        DBRef(current_user.get_collection_name(), current_user.id),
+    )
+
     for var_name, var_schema in properties.items():
         is_required = var_name in required_fields
-        dbref = cast(
-            Link[User],
-            DBRef(current_user.get_collection_name(), current_user.id),
-        )
 
         if var_name in existing_by_name:
             existing = existing_by_name[var_name]
@@ -362,7 +363,7 @@ async def update_variables_schema(
         result = await Variable.get_pymongo_collection().update_many(
             {"_id": {"$in": removed_var_ids}},
             {
-                "$set": {"required": False, "updated_at": now},
+                "$set": {"required": False, "updated_at": now, "updated_by": dbref},
                 "$unset": {"validation_schema": ""},
             },
         )
