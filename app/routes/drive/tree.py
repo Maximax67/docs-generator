@@ -39,7 +39,7 @@ router = APIRouter(prefix="/tree", tags=["tree"])
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_tree(
     request: Request,
     response: Response,

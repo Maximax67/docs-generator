@@ -122,7 +122,7 @@ async def get_variables(
     },
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def create_variable(
     body: VariableCreate,
     request: Request,
@@ -249,7 +249,7 @@ async def get_variables_schema(
     },
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def update_variables_schema(
     body: VariableSchemaUpdate,
     request: Request,
@@ -453,7 +453,7 @@ async def delete_all_saved_variables(
         },
     },
 )
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 async def batch_save_variables(
     body: VariableBatchSaveRequest,
     request: Request,
@@ -603,7 +603,7 @@ async def get_variable(
     responses=common_responses,
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("15/minute")
 async def update_variable(
     variable_id: PydanticObjectId,
     body: VariableUpdate,
@@ -660,7 +660,7 @@ async def update_variable(
     responses={**common_responses},
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("15/minute")
 async def delete_variable(
     variable_id: PydanticObjectId,
     request: Request,

@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("", response_model=dict[str, str], tags=["root"])
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 def info(request: Request, response: Response) -> dict[str, str]:
     return {
         "title": settings.APP_TITLE,
@@ -22,7 +22,7 @@ def info(request: Request, response: Response) -> dict[str, str]:
 
 
 @router.get("/health", response_model=DetailResponse, tags=["root"])
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 def health_check(request: Request, response: Response) -> DetailResponse:
     return DetailResponse(detail="ok")
 

@@ -284,7 +284,7 @@ async def regenerate_by_id(
     response_model=DetailResponse,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("15/minute")
 async def delete_generation_by_id(
     generation_id: PydanticObjectId,
     request: Request,

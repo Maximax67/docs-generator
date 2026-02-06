@@ -42,7 +42,7 @@ common_responses: dict[int | str, dict[str, Any]] = {
     responses={403: common_responses[403]},
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def get_scopes(
     request: Request,
     response: Response,
@@ -75,7 +75,7 @@ async def get_scopes(
     },
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def create_scope(
     body: ScopeCreate,
     request: Request,
@@ -116,7 +116,7 @@ async def create_scope(
     responses=common_responses,
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def get_scope(
     drive_id: str,
     request: Request,
@@ -136,7 +136,7 @@ async def get_scope(
     responses=common_responses,
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def update_scope_restrictions(
     drive_id: str,
     body: ScopeUpdate,
@@ -175,7 +175,7 @@ async def update_scope_restrictions(
     },
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def pin_scope(
     drive_id: str,
     request: Request,
@@ -211,7 +211,7 @@ async def pin_scope(
     },
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def unpin_scope(
     drive_id: str,
     request: Request,
@@ -239,7 +239,7 @@ async def unpin_scope(
     responses=common_responses,
     dependencies=[Depends(require_admin)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def delete_scope(
     drive_id: str,
     request: Request,
