@@ -20,4 +20,3 @@ httpx
 user_agents
 regex
 jsonschema[format]
-resource
