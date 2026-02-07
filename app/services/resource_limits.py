@@ -41,21 +41,18 @@ def _limit_resources() -> None:
         return
 
     # Limit virtual memory (address space)
-    resource.setrlimit(
-        resource.RLIMIT_AS, (settings.MAX_PROCESS_MEMORY, settings.MAX_PROCESS_MEMORY)
-    )
+    if settings.MAX_PROCESS_MEMORY:
+        resource.setrlimit(
+            resource.RLIMIT_AS,
+            (settings.MAX_PROCESS_MEMORY, settings.MAX_PROCESS_MEMORY),
+        )
 
     # Limit CPU time
-    resource.setrlimit(
-        resource.RLIMIT_CPU,
-        (settings.MAX_PROCESS_CPU_TIME, settings.MAX_PROCESS_CPU_TIME),
-    )
-
-    # Limit number of open files
-    resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
-
-    # Limit core dump size to 0
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    if settings.MAX_PROCESS_CPU_TIME:
+        resource.setrlimit(
+            resource.RLIMIT_CPU,
+            (settings.MAX_PROCESS_CPU_TIME, settings.MAX_PROCESS_CPU_TIME),
+        )
 
 
 def _worker_wrapper(
@@ -168,7 +165,11 @@ def validate_file_size(file_size: int | None) -> None:
     Raises:
         ResourceLimitError: If file size exceeds MAX_FILE_DOWNLOAD_SIZE
     """
-    if file_size is not None and file_size > settings.MAX_FILE_DOWNLOAD_SIZE:
+    if (
+        settings.MAX_FILE_DOWNLOAD_SIZE
+        and file_size is not None
+        and file_size > settings.MAX_FILE_DOWNLOAD_SIZE
+    ):
         size_mb = file_size / (1024 * 1024)
         limit_mb = settings.MAX_FILE_DOWNLOAD_SIZE / (1024 * 1024)
         raise ResourceLimitError(
