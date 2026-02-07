@@ -1,6 +1,5 @@
 from typing import Annotated
 from beanie import Document, Indexed
-from pydantic import Field
 
 from app.enums import UserRole
 from .timestamps import TimestampMixin
