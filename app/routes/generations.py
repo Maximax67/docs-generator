@@ -66,7 +66,7 @@ async def get_generations(
     template_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
-    authorized_user: AuthorizedUser = Depends(require_admin),
+    authorized_user: AuthorizedUser = Depends(get_authorized_user),
 ) -> Paginated[Generation]:
     query: dict[str, str | PydanticObjectId | None] = {}
 
