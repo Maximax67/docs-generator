@@ -6,26 +6,12 @@ class Settings(BaseSettings):
     APP_TITLE: str = "Docs Generator"
     APP_VERSION: str = "1.0.0"
 
-    ALLOWED_ORIGINS: str
-
-    ADMIN_CHAT_ID: int
-    ADMIN_GREETING_THREAD_ID: int | None = None
-    ADMIN_ERRORS_THREAD_ID: int | None = None
-    ADMIN_DOCUMENTS_THREAD_ID: int | None = None
-    ADMIN_FEEDBACK_THREAD_ID: int | None = None
-
-    ADMIN_GREETING_ENABLED: bool = True
-
     SERVICE_ACCOUNT_FILE: str
     DATABASE_URL: SecretStr
 
     API_URL: HttpUrl
     FRONTEND_URL: HttpUrl
-
-    TELEGRAM_BOT_TOKEN: SecretStr
-    TELEGRAM_SECRET: SecretStr
-
-    API_TOKEN: SecretStr
+    ALLOWED_ORIGINS: str
 
     MAX_VARIABLE_NAME: int = 100
     MAX_DOCUMENT_VARIABLES: int = 1000
@@ -37,7 +23,7 @@ class Settings(BaseSettings):
 
     JWT_SECRET: SecretStr
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRES_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRES_MINUTES: int = 10
     REFRESH_TOKEN_EXPIRES_DAYS: int = 30
     JWT_ISSUER: str | None = None
     JWT_AUDIENCE: str | None = None
