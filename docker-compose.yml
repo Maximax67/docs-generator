@@ -1,6 +1,13 @@
 services:
   docs-generator:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_URL: "${FRONTEND_URL}/api"
+        NEXT_PUBLIC_FRONTEND_URL: "${FRONTEND_URL}"
+        NEXT_PUBLIC_SWAGGER_URL: "${FRONTEND_URL}/docs"
+        NEXT_PUBLIC_POSTMAN_URL: "https://www.postman.com/helizium/workspace/kpi-docs-generator/collection/34916730-799b198a-2123-479d-a45d-2f7fdce7e93d"
+        NEXT_PUBLIC_ACCESS_TOKEN_LIFETIME_MINUTES: "${ACCESS_TOKEN_EXPIRES_MINUTES}"
     container_name: docs-generator
     ports:
       - "8000:8000"
@@ -8,11 +15,6 @@ services:
       - .env
     environment:
       DATABASE_URL: "mongodb://mongo:27017"
-      NEXT_PUBLIC_API_URL: "http://localhost:8000"
-      NEXT_PUBLIC_FRONTEND_URL: "http://localhost:8000"
-      NEXT_PUBLIC_SWAGGER_URL: "http://localhost:8000/docs"
-      NEXT_PUBLIC_POSTMAN_URL: "https://www.postman.com/helizium/workspace/kpi-docs-generator/collection/34916730-799b198a-2123-479d-a45d-2f7fdce7e93d"
-      NEXT_PUBLIC_ACCESS_TOKEN_LIFETIME_MINUTE: "${ACCESS_TOKEN_EXPIRES_MINUTES}"
     depends_on:
       - mongo
     volumes:
