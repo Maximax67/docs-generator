@@ -113,6 +113,17 @@ def to_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def to_str(value: Any) -> str:
+    return str(value)
+
+
 def today(fmt: str = "%Y-%m-%d", tz: str | tzinfo | None = timezone.utc) -> str:
     return now(fmt=fmt, tz=tz)
 
@@ -132,6 +143,9 @@ jinja_env.filters.update(
         "join_non_empty": join_non_empty,
         "format_currency": format_currency,
         "pluralize": pluralize,
+        "to_int": to_int,
+        "to_float": to_float,
+        "to_str": to_str,
     }
 )
 
