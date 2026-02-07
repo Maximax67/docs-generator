@@ -11,7 +11,7 @@ async def send_email(
     username: str,
     url: str,
 ) -> None:
-    headers = {"x-api-token": settings.MAILER_TOKEN}
+    headers = {"x-api-token": settings.MAILER_TOKEN.get_secret_value()}
     payload = {
         "to_email": to_email,
         "subject": subject,

@@ -29,7 +29,11 @@ class Settings(BaseSettings):
 
     MAX_VARIABLE_NAME: int = 100
     MAX_DOCUMENT_VARIABLES: int = 1000
-    MAX_SAVED_VARIABLES: int = 100
+
+    MAX_FILE_DOWNLOAD_SIZE: int = 50 * 1024 * 1024
+    MAX_PROCESS_MEMORY: int = 256 * 1024 * 1024
+    MAX_PROCESS_CPU_TIME: int = 30
+    MAX_CONVERSION_TIME: int = 30
 
     JWT_SECRET: SecretStr
     JWT_ALGORITHM: str = "HS256"
@@ -45,7 +49,7 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"  # 'lax' | 'strict' | 'none'
 
     MAILER_URL: str
-    MAILER_TOKEN: str
+    MAILER_TOKEN: SecretStr
 
     model_config = SettingsConfigDict(env_file=".env")
 

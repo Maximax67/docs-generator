@@ -13,6 +13,7 @@ from app.constants import (
 )
 from app.schemas.google import DriveFile, DriveFolder
 from app.google_credentials import credentials
+from app.services.resource_limits import validate_file_size
 
 
 drive_client = build("drive", "v3", credentials=credentials)
@@ -67,15 +68,6 @@ def get_accessible_files_and_folders() -> list[dict[str, Any]]:
     mime_types_query += " or mimeType='application/vnd.google-apps.folder'"
 
     return get_results_by_query(f"({mime_types_query}) and trashed=false")
-
-
-def get_accessible_documents() -> list[dict[str, Any]]:
-    mime_types_query = " or ".join(
-        [f"mimeType='{mime}'" for mime in DOC_COMPATIBLE_MIME_TYPES]
-    )
-    query = f"({mime_types_query}) and trashed=false"
-
-    return get_results_by_query(query)
 
 
 @cached(folder_graph_cache)
@@ -176,6 +168,20 @@ def download_file(
     export_mime_type: str | None = None,
     file_size: int | None = None,
 ) -> None:
+    """
+    Download a file from Google Drive with size validation.
+
+    Args:
+        file_id: Google Drive file ID
+        out: Output stream to write file contents
+        export_mime_type: MIME type for export (for Google Docs)
+        file_size: File size in bytes (for validation)
+
+    Raises:
+        ResourceLimitError: If file size exceeds MAX_FILE_DOWNLOAD_SIZE
+    """
+    validate_file_size(file_size)
+
     if export_mime_type:
         request = drive_client.files().export_media(
             fileId=file_id, mimeType=export_mime_type

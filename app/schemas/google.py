@@ -36,7 +36,3 @@ class DriveFolder(DriveItem):
             )
 
         return v
-
-
-class DriveFileListResponse(BaseModel):
-    files: list[DriveFile]

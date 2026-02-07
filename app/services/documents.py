@@ -6,29 +6,24 @@ from docxtpl import DocxTemplate  # type: ignore[import-untyped]
 from fastapi import HTTPException
 
 from app.schemas.google import DriveFile
-from app.services.google_drive import (
-    download_file,
-    get_accessible_documents,
-    format_drive_file_metadata,
-)
+from app.services.google_drive import download_file
 from app.services.jinja import jinja_env
 from app.services.soffice import convert_file
 from app.services.variables import (
     get_effective_variables_for_document,
     resolve_variables_for_generation,
 )
+from app.services.resource_limits import run_with_limits, validate_file_size
 from app.enums import MIME_TO_FORMAT, DocumentResponseFormat
 from app.settings import settings
 from app.constants import DOC_COMPATIBLE_MIME_TYPES
 
 
-def get_all_documents() -> list[DriveFile]:
-    documents = get_accessible_documents()
-    return [format_drive_file_metadata(document) for document in documents]
-
-
 def download_docx_document(document: DriveFile) -> str:
-    """Download document as DOCX format."""
+    """Download document as DOCX format with size validation."""
+    # Validate file size before downloading
+    validate_file_size(document.size)
+
     download_mime_type: str | None = None
 
     if document.mime_type == "application/vnd.google-apps.document":
@@ -70,6 +65,9 @@ def download_template_as_format(
     Download template document in specified format without filling variables.
     For Google Docs, can download directly as PDF for better performance.
     """
+    # Validate file size before downloading
+    validate_file_size(document.size)
+
     if document.mime_type == "application/vnd.google-apps.document":
         # Google Docs can be exported directly to PDF
         if format == DocumentResponseFormat.PDF:
@@ -114,13 +112,28 @@ def download_template_as_format(
                 os.remove(docx_path)
 
 
+def _get_template_variables_worker(docx_path: str) -> set[str]:
+    """
+    Worker function to extract template variables.
+    Runs in a separate process with resource limits.
+    """
+    doc = DocxTemplate(docx_path)
+    variables: set[str] = doc.get_undeclared_template_variables(jinja_env)
+    return variables
+
+
 def get_template_variables(document: DriveFile) -> set[str]:
-    """Get undeclared variables from document template."""
+    """
+    Get undeclared variables from document template.
+    Uses resource limits to prevent abuse.
+    """
     docx_path = download_docx_document(document)
 
     try:
-        doc = DocxTemplate(docx_path)
-        variables: set[str] = doc.get_undeclared_template_variables(jinja_env)
+        # Run variable extraction with resource limits
+        variables = run_with_limits(
+            _get_template_variables_worker, docx_path, timeout=30
+        )
         return variables
     finally:
         if os.path.exists(docx_path):
@@ -172,6 +185,24 @@ async def validate_variables_for_document(
     )
 
 
+def _render_document_worker(
+    docx_path: str,
+    context: dict[str, Any],
+) -> str:
+    """
+    Worker function to render document template.
+    Runs in a separate process with resource limits.
+    """
+    doc = DocxTemplate(docx_path)
+    doc.render(context, jinja_env, autoescape=True)
+
+    rendered_fd, rendered_path = tempfile.mkstemp(suffix=".docx")
+    os.close(rendered_fd)
+    doc.save(rendered_path)
+
+    return rendered_path
+
+
 async def generate_document(
     document: DriveFile,
     user_variables: dict[str, Any],
@@ -190,8 +221,10 @@ async def generate_document(
     rendered_path: str | None = None
 
     try:
-        doc = DocxTemplate(docx_path)
-        template_variables = doc.get_undeclared_template_variables(jinja_env)
+        # Get template variables with resource limits
+        template_variables = run_with_limits(
+            _get_template_variables_worker, docx_path, timeout=30
+        )
 
         # Resolve variables with validation
         context = await resolve_variables_for_generation(
@@ -202,12 +235,10 @@ async def generate_document(
             bypass_validation,
         )
 
-        # Render document
-        doc.render(context, jinja_env, autoescape=True)
-
-        rendered_fd, rendered_path = tempfile.mkstemp(suffix=".docx")
-        os.close(rendered_fd)
-        doc.save(rendered_path)
+        # Render document with resource limits
+        rendered_path = run_with_limits(
+            _render_document_worker, docx_path, context, timeout=30
+        )
 
         if format == DocumentResponseFormat.DOCX:
             return rendered_path, context
@@ -259,4 +290,3 @@ def resolve_format(
         return format
 
     return DocumentResponseFormat.PDF
-
