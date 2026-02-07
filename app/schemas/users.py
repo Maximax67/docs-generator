@@ -29,7 +29,7 @@ class UserCreateRequest(BaseModel):
 
 
 class UserBatchCreateRequest(BaseModel):
-    users: list[UserCreateRequest]
+    users: Annotated[list[UserCreateRequest], Field(max_length=1000)]
 
 
 class UserUpdateRequest(BaseModel):
