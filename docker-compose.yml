@@ -14,6 +14,7 @@ services:
       NEXT_PUBLIC_FRONTEND_URL: "http://localhost:8000"
       NEXT_PUBLIC_SWAGGER_URL: "http://localhost:8000/docs"
       NEXT_PUBLIC_POSTMAN_URL: "https://www.postman.com/helizium/workspace/kpi-docs-generator/collection/34916730-799b198a-2123-479d-a45d-2f7fdce7e93d"
+      NEXT_PUBLIC_ACCESS_TOKEN_LIFETIME_MINUTE: "${ACCESS_TOKEN_EXPIRES_MINUTES}"
     depends_on:
       - mongo
     volumes:
