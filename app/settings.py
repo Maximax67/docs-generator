@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     MAX_DOCUMENT_VARIABLES: int = 1000
 
     MAX_FILE_DOWNLOAD_SIZE: int = 50 * 1024 * 1024
-    MAX_PROCESS_MEMORY: int = 256 * 1024 * 1024
+    MAX_PROCESS_MEMORY: int = 512 * 1024 * 1024
     MAX_PROCESS_CPU_TIME: int = 30
-    MAX_CONVERSION_TIME: int = 30
+    MAX_CONVERSION_TIME: int = 45
 
     JWT_SECRET: SecretStr
     JWT_ALGORITHM: str = "HS256"
