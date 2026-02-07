@@ -2,14 +2,18 @@ from datetime import datetime, timezone
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
 from beanie import PydanticObjectId
 
 from app.enums import UserRole, UserStatus
 from app.limiter import limiter
 from app.schemas.common_responses import DetailResponse, Paginated
-from app.schemas.users import UserResponse, UserUpdateRequest
-from app.services.auth import clear_auth_cookies
+from app.schemas.users import (
+    UserResponse,
+    UserUpdateRequest,
+    UserCreateRequest,
+    UserBatchCreateRequest,
+)
+from app.services.auth import clear_auth_cookies, hash_password
 from app.services.users import update_user_bool_field
 from app.services.bloom_filter import bloom_filter
 from app.schemas.auth import AuthorizedUser
@@ -99,10 +103,10 @@ async def get_all_users(
     response_model=UserResponse,
     responses={
         409: {
-            "description": "User with this id already exists",
+            "description": "User with this email already exists",
             "content": {
                 "application/json": {
-                    "example": {"detail": "User with this id already exists"}
+                    "example": {"detail": "User with this email already exists"}
                 }
             },
         },
@@ -112,14 +116,83 @@ async def get_all_users(
     dependencies=[Depends(require_god)],
 )
 @limiter.limit("5/minute")
-async def create_user(request: Request, response: Response, user: User) -> User:
-    try:
-        return await user.create()
-    except DuplicateKeyError:
+async def create_user(
+    request: Request, response: Response, user_data: UserCreateRequest
+) -> User:
+    existing = await User.find_one(User.email == user_data.email)
+    if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="User with this id or already exists",
+            detail="User with this email already exists",
         )
+
+    user_dict = user_data.model_dump(exclude_unset=True, exclude={"password"})
+    user = User(**user_dict, password_hash=hash_password(user_data.password))
+
+    return await user.create()
+
+
+@router.post(
+    "/batch",
+    status_code=status.HTTP_201_CREATED,
+    response_model=DetailResponse,
+    responses={
+        400: {
+            "description": "Invalid request - validation failed or duplicate emails in request",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Duplicate emails in request"}
+                }
+            },
+        },
+        409: {
+            "description": "One or more users already exist",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "One or more users already exist"}
+                }
+            },
+        },
+        401: common_responses[401],
+        403: common_responses[403],
+    },
+    dependencies=[Depends(require_god)],
+)
+@limiter.limit("2/minute")
+async def create_users_batch(
+    request: Request, response: Response, batch_data: UserBatchCreateRequest
+) -> DetailResponse:
+    if not batch_data.users:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No users provided",
+        )
+
+    emails = [user.email for user in batch_data.users]
+    if len(emails) != len(set(emails)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Duplicate emails in request",
+        )
+
+    existing_users = await User.find({"email": {"$in": emails}}).to_list()
+    if existing_users:
+        existing_emails = [user.email for user in existing_users]
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Users with these emails already exist: {', '.join(existing_emails)}",
+        )
+
+    users_to_create: list[User] = []
+
+    for user_data in batch_data.users:
+        user_dict = user_data.model_dump(exclude_unset=True, exclude={"password"})
+        user = User(**user_dict, password_hash=hash_password(user_data.password))
+        users_to_create.append(user)
+
+    await User.insert_many(users_to_create)
+
+    return DetailResponse(detail=f"Created {len(users_to_create)} users")
 
 
 @router.get(

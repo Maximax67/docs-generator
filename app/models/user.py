@@ -13,7 +13,7 @@ class User(Document, TimestampMixin):
     last_name: str | None = None
     is_banned: bool = False
 
-    password_hash: str = Field(exclude=True)
+    password_hash: str
     email_verified: bool = False
     role: UserRole = UserRole.USER
 
