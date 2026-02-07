@@ -119,7 +119,7 @@ class VariableSchemaUpdate(BaseModel):
 
 class VariableOverride(BaseModel):
     id: PydanticObjectId
-    scope: str
+    scope: str | None
 
 
 class VariableResponse(BaseModel):
