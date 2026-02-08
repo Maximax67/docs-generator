@@ -11,10 +11,6 @@ def load_json(value: Any) -> Any:
     return json.loads(value)
 
 
-def dict_get(d: dict[Any, Any], key: Any, default: Any = "") -> Any:
-    return d.get(key, default)
-
-
 def _parse_timezone(tz: str | tzinfo | None) -> tzinfo:
     if tz is None:
         return timezone.utc
@@ -67,13 +63,6 @@ def format_datetime(
     return dt.strftime(fmt)
 
 
-def default_if_empty(value: Any, default: Any = "") -> Any:
-    if value in (None, "", [], {}, ()):
-        return default
-
-    return value
-
-
 def yesno(value: Any, yes: str = "Yes", no: str = "No") -> str:
     return yes if bool(value) else no
 
@@ -106,24 +95,6 @@ def pluralize(count: Any, singular: str, plural: str | None = None) -> str:
     return singular if count == 1 else (plural or singular + "s")
 
 
-def to_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except Exception:
-        return default
-
-
-def to_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except Exception:
-        return default
-
-
-def to_str(value: Any) -> str:
-    return str(value)
-
-
 def today(fmt: str = "%Y-%m-%d", tz: str | tzinfo | None = timezone.utc) -> str:
     return now(fmt=fmt, tz=tz)
 
@@ -136,16 +107,11 @@ jinja_env = jinja2.Environment()
 jinja_env.filters.update(
     {
         "load_json": load_json,
-        "dict_get": dict_get,
         "format_datetime": format_datetime,
-        "default_if_empty": default_if_empty,
         "yesno": yesno,
         "join_non_empty": join_non_empty,
         "format_currency": format_currency,
         "pluralize": pluralize,
-        "to_int": to_int,
-        "to_float": to_float,
-        "to_str": to_str,
     }
 )
 

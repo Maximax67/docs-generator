@@ -2,7 +2,7 @@ import os
 import tempfile
 from beanie import PydanticObjectId
 from typing import Any
-from docxtpl import DocxTemplate  # type: ignore[import-untyped]
+from docxtpl import DocxTemplate, RichTextParagraph, RichText  # type: ignore[import-untyped]
 from fastapi import HTTPException
 
 from app.schemas.google import DriveFile
@@ -185,6 +185,155 @@ async def validate_variables_for_document(
     )
 
 
+def _extract_rich_text_params(obj: dict[str, Any], doc: DocxTemplate) -> dict[str, Any]:
+    """
+    Extract RichText formatting parameters from object config.
+    Handles special cases like url_id for hyperlinks.
+    """
+    params = {}
+
+    # List of supported RichText parameters
+    supported_params = [
+        "style",
+        "color",
+        "highlight",
+        "size",
+        "bold",
+        "italic",
+        "underline",
+        "strike",
+        "font",
+        "subscript",
+        "superscript",
+        "rtl",
+        "lang",
+    ]
+
+    for param in supported_params:
+        if param in obj:
+            params[param] = obj[param]
+
+    # Handle URL specially - build url_id if url is provided
+    if "url" in obj:
+        params["url_id"] = doc.build_url_id(obj["url"])
+    elif "url_id" in obj:
+        params["url_id"] = obj["url_id"]
+
+    return params
+
+
+def _create_rich_text(config: dict[str, Any], doc: DocxTemplate) -> Any:
+    """
+    Create a RichText object from configuration dict.
+
+    Expected format:
+    {
+        "_type": "rich_text",
+        "_objects": [
+            {"text": "Hello", "bold": True},
+            {"text": "World", "italic": True, "url": "http://example.com"}
+        ]
+    }
+    """
+    objects = config.get("_objects", [])
+    if not objects:
+        return RichText()
+
+    # Process first object to initialize RichText
+    first_obj = objects[0]
+    text = first_obj.get("text", "")
+
+    # Handle nested rich_text in text field
+    if isinstance(text, dict) and text.get("_type") == "rich_text":
+        rt = _create_rich_text(text, doc)
+    else:
+        params = _extract_rich_text_params(first_obj, doc)
+        rt = RichText(text, **params)
+
+    # Add remaining objects
+    for obj in objects[1:]:
+        text = obj.get("text", "")
+
+        # Handle nested rich_text
+        if isinstance(text, dict) and text.get("_type") == "rich_text":
+            nested_rt = _create_rich_text(text, doc)
+            rt.add(nested_rt)
+        else:
+            params = _extract_rich_text_params(obj, doc)
+            rt.add(text, **params)
+
+    return rt
+
+
+def _create_rich_text_paragraph(config: dict[str, Any], doc: DocxTemplate) -> Any:
+    """
+    Create a RichTextParagraph object from configuration dict.
+
+    Expected format:
+    {
+        "_type": "rich_text_paragraph",
+        "_objects": [
+            {"text": {"_type": "rich_text", ...}, "parastyle": "Heading1"},
+            {"text": "plain text"}
+        ]
+    }
+    """
+    rtp = RichTextParagraph()
+
+    objects = config.get("_objects", [])
+    for obj in objects:
+        text = obj.get("text", "")
+        parastyle = obj.get("parastyle")
+
+        # Convert text to RichText
+        if isinstance(text, dict) and text.get("_type") == "rich_text":
+            rt = _create_rich_text(text, doc)
+        elif isinstance(text, str):
+            rt = RichText(text)
+        else:
+            # Assume it's already a RichText object
+            rt = text
+
+        # Add to paragraph with optional style
+        if parastyle:
+            rtp.add(rt, parastyle=parastyle)
+        else:
+            rtp.add(rt)
+
+    return rtp
+
+
+def _transform_rich_text_objects(
+    context: dict[str, Any], doc: DocxTemplate
+) -> dict[str, Any]:
+    """
+    Recursively transform dictionaries with _type='rich_text' or 'rich_text_paragraph'
+    into RichText or RichTextParagraph objects.
+
+    This allows users to pass rich text formatting as JSON-like structures
+    that get converted to proper docxtpl objects.
+    """
+
+    def transform_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            # Check if this is a special rich text object
+            value_type = value.get("_type")
+            if value_type == "rich_text":
+                return _create_rich_text(value, doc)
+            elif value_type == "rich_text_paragraph":
+                return _create_rich_text_paragraph(value, doc)
+            else:
+                # Recursively process nested dicts
+                return {k: transform_value(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            # Recursively process lists
+            return [transform_value(item) for item in value]
+        else:
+            return value
+
+    return {k: transform_value(v) for k, v in context.items()}
+
+
 def _render_document_worker(
     docx_path: str,
     context: dict[str, Any],
@@ -192,9 +341,16 @@ def _render_document_worker(
     """
     Worker function to render document template.
     Runs in a separate process with resource limits.
+
+    Automatically transforms rich text object configurations into
+    docxtpl RichText and RichTextParagraph objects before rendering.
     """
     doc = DocxTemplate(docx_path)
-    doc.render(context, jinja_env, autoescape=True)
+
+    # Transform rich text objects in context
+    enriched_context = _transform_rich_text_objects(context, doc)
+
+    doc.render(enriched_context, jinja_env, autoescape=True)
 
     rendered_fd, rendered_path = tempfile.mkstemp(suffix=".docx")
     os.close(rendered_fd)
