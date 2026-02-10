@@ -285,11 +285,6 @@ async def update_variables_schema(
     properties = body.validation_schema.get("properties", {})
     required_fields = set(body.validation_schema.get("required", []))
 
-    if not properties:
-        raise HTTPException(
-            status_code=400, detail="Schema must have at least one property"
-        )
-
     existing_vars = await Variable.find(Variable.scope == body.scope).to_list()
     existing_by_name = {v.variable: v for v in existing_vars}
     variable_names_in_schema = set(properties.keys())
