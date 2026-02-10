@@ -143,6 +143,7 @@ def get_template_variables(document: DriveFile) -> set[str]:
 async def get_document_variables_info(
     document: DriveFile,
     user_id: PydanticObjectId | None = None,
+    file_parent: str | None = None,
 ) -> tuple[set[str], dict[str, dict[str, Any]]]:
     """
     Get template variables and their database configuration.
@@ -154,7 +155,7 @@ async def get_document_variables_info(
     template_variables = get_template_variables(document)
 
     variables_info = await get_effective_variables_for_document(
-        document.id, template_variables, user_id
+        document.id, template_variables, user_id, file_parent
     )
 
     return template_variables, variables_info

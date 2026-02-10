@@ -164,7 +164,7 @@ async def get_document(
 
     try:
         template_variables, variables_info = await get_document_variables_info(
-            file, user_id
+            file, user_id, file.parent
         )
     except ResourceLimitError as e:
         raise handle_resource_limit_error(e)
@@ -256,7 +256,7 @@ async def get_variables_for_document(
 
     try:
         template_variables, variables_info = await get_document_variables_info(
-            file, user_id
+            file, user_id, file.parent
         )
     except ResourceLimitError as e:
         raise handle_resource_limit_error(e)

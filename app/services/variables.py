@@ -13,6 +13,7 @@ async def get_effective_variables_for_document(
     document_id: str,
     template_variables: set[str],
     user_id: PydanticObjectId | None = None,
+    file_parent: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
     Get effective variables for a document based on template variables and database config.
@@ -28,13 +29,11 @@ async def get_effective_variables_for_document(
     """
     # Get scope chain for the document
     try:
-        scope_chain = get_item_path(document_id)
+        scope_chain = get_item_path(document_id, file_parent)
     except Exception:
         scope_chain = []
 
     # Fetch all variables from database that might apply to this document
-    from beanie.operators import In
-
     if scope_chain:
         db_variables = await Variable.find(
             In(Variable.scope, scope_chain + [None])
@@ -56,7 +55,7 @@ async def get_effective_variables_for_document(
                 )
                 new_priority = get_scope_priority(var.scope, scope_chain)
 
-                if new_priority < current_priority:
+                if new_priority > current_priority:
                     effective_db_vars[var.variable] = var
 
     # Get user's saved variables if user_id provided
@@ -104,18 +103,18 @@ async def get_effective_variables_for_document(
 def get_scope_priority(scope: str | None, scope_chain: list[str]) -> int:
     """
     Get priority of a scope in the chain.
-    Lower number = more specific (higher priority).
+    Higher number = more specific (higher priority).
     """
     if not scope_chain:
-        return 1
+        return 0
 
     if scope is None:
-        return len(scope_chain)
+        return 0
 
     try:
         return scope_chain.index(scope)
     except ValueError:
-        return len(scope_chain) + 1
+        return 0
 
 
 async def resolve_variables_for_generation(
