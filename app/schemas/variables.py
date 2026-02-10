@@ -111,8 +111,8 @@ class VariableSchemaUpdate(BaseModel):
         if v.get("type") != "object":
             raise ValueError("Root schema must be of type 'object'")
 
-        if not v.get("properties"):
-            raise ValueError("Schema must have at least one property")
+        if v.get("properties") is None:
+            raise ValueError("Schema must define 'properties'")
 
         return v
 
