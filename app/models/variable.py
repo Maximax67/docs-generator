@@ -3,6 +3,8 @@ from beanie import Document, Link
 from pydantic import Field
 from pymongo import IndexModel
 
+from app.constants import DEFAULT_VARIABLE_ORDER
+
 from .timestamps import TimestampMixin
 from .user import User
 
@@ -16,6 +18,7 @@ class Variable(Document, TimestampMixin):
     updated_by: Link[User] | None = None
     validation_schema: dict[str, Any] | None = None
     value: Any | None = None
+    order: int = DEFAULT_VARIABLE_ORDER
 
     class Settings:
         name = "variables"

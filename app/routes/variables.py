@@ -14,6 +14,7 @@ from app.limiter import limiter
 from app.models import Variable, User, SavedVariable
 from app.schemas.common_responses import DetailResponse, Paginated
 from app.schemas.variables import (
+    VariableBatchReorderRequest,
     VariableBatchSaveResponse,
     VariableCreate,
     VariableResponse,
@@ -28,6 +29,7 @@ from app.schemas.variables import (
 from app.services.google_drive import get_drive_item_metadata, get_item_path
 from app.services.variables import build_overrides_map, get_variable_overrides
 from app.utils.paginate import paginate
+from app.constants import DEFAULT_VARIABLE_ORDER
 
 
 router = APIRouter(prefix="/variables", tags=["variables"])
@@ -316,6 +318,7 @@ async def update_variables_schema(
                     required=is_required,
                     allow_save=False,
                     value=None,
+                    order=DEFAULT_VARIABLE_ORDER,
                     created_by=dbref,
                     updated_by=dbref,
                 )
@@ -429,6 +432,91 @@ async def delete_all_saved_variables(
 
 
 @router.post(
+    "/reorder",
+    response_model=DetailResponse,
+    responses={
+        401: common_responses[401],
+        400: {
+            "description": "One or more variables failed reordering — nothing is saved",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Validation failed",
+                        "errors": {
+                            "507f1f77bcf86cd799439011": "Variable not found",
+                            "507f1f77bcf86cd799439012": "Variable not found",
+                        },
+                    }
+                }
+            },
+        },
+    },
+)
+@limiter.limit("5/minute")
+async def batch_reorder(
+    body: VariableBatchReorderRequest,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+) -> DetailResponse | JSONResponse:
+    requested_ids = [item.id for item in body.variables]
+    variables_map: dict[PydanticObjectId, Variable] = {
+        v.id: v  # type: ignore[misc]
+        for v in await Variable.find(
+            In(Variable.id, requested_ids), fetch_links=True
+        ).to_list()
+    }
+
+    errors: dict[str, str] = {}
+
+    for item in body.variables:
+        variable = variables_map.get(item.id)
+
+        if not variable:
+            errors[str(item.id)] = "Variable not found"
+            continue
+
+    if errors:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Validation failed", "errors": errors},
+        )
+
+    orders = [item.order for item in body.variables]
+    if len(orders) != len(set(orders)):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": "Validation failed",
+                "errors": {"order": "Duplicate order values are not allowed"},
+            },
+        )
+
+    dbref = cast(
+        Link[User],
+        DBRef(current_user.get_collection_name(), current_user.id),
+    )
+
+    now = datetime.now(timezone.utc)
+    operations = [
+        UpdateOne(
+            {"_id": item.id},
+            {
+                "$set": {
+                    "order": item.order,
+                    "updated_by": dbref,
+                    "updated_at": now,
+                }
+            },
+        )
+        for item in body.variables
+    ]
+    await Variable.get_pymongo_collection().bulk_write(operations)
+
+    return DetailResponse(detail="Reorder successfull")
+
+
+@router.post(
     "/save",
     response_model=VariableBatchSaveResponse,
     responses={
@@ -527,11 +615,15 @@ async def batch_save_variables(
         await SavedVariable.insert_many(to_insert)
 
     if to_update:
+        dbref = cast(
+            Link[User],
+            DBRef(current_user.get_collection_name(), current_user.id),
+        )
         now = datetime.now(timezone.utc)
         operations = [
             UpdateOne(
                 {"_id": doc.id},
-                {"$set": {"value": doc.value, "updated_at": now}},
+                {"$set": {"value": doc.value, "updated_by": dbref, "updated_at": now}},
             )
             for doc in to_update
         ]

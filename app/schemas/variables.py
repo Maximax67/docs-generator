@@ -6,6 +6,7 @@ from beanie import PydanticObjectId
 
 from app.settings import settings
 from app.schemas.users import UserPublicResponse
+from app.constants import DEFAULT_VARIABLE_ORDER
 
 
 class VariableCreate(BaseModel):
@@ -21,6 +22,7 @@ class VariableCreate(BaseModel):
         None, description="JSON Schema for validation"
     )
     value: Any | None = Field(None, description="Constant value (if not user input)")
+    order: int = Field(DEFAULT_VARIABLE_ORDER, ge=0, description="Variable order")
 
     @field_validator("variable")
     def validate_variable_name(cls: "VariableCreate", v: str) -> str:
@@ -60,6 +62,7 @@ class VariableUpdate(BaseModel):
     required: bool | None = None
     validation_schema: dict[str, Any] | None = None
     value: Any | None = None
+    order: int | None = None
 
     @field_validator("variable")
     def validate_variable_name(cls: "VariableUpdate", v: str | None) -> str | None:
@@ -137,6 +140,7 @@ class VariableResponse(BaseModel):
     overrides: list[VariableOverride] = Field(
         default_factory=list, description="List of variables overridden by this one"
     )
+    order: int
 
     class Config:
         from_attributes = True
@@ -181,3 +185,14 @@ class VariableBatchSaveRequest(BaseModel):
 
 class VariableBatchSaveResponse(BaseModel):
     variables: list[SavedVariableResponse]
+
+
+class VariableBatchReorderItem(BaseModel):
+    id: PydanticObjectId = Field(..., description="Variable ID")
+    order: int = Field(..., ge=0, description="Variable order")
+
+
+class VariableBatchReorderRequest(BaseModel):
+    variables: list[VariableBatchReorderItem] = Field(
+        ..., min_length=1, max_length=100, description="List of variables to reorder"
+    )

@@ -17,3 +17,5 @@ DOC_COMPATIBLE_MIME_TYPES = [
     "application/vnd.oasis.opendocument.text",  # .odt
     "text/plain",  # .txt
 ]
+
+DEFAULT_VARIABLE_ORDER = 10
