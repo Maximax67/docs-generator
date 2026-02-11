@@ -482,16 +482,6 @@ async def batch_reorder(
             content={"detail": "Validation failed", "errors": errors},
         )
 
-    orders = [item.order for item in body.variables]
-    if len(orders) != len(set(orders)):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "detail": "Validation failed",
-                "errors": {"order": "Duplicate order values are not allowed"},
-            },
-        )
-
     dbref = cast(
         Link[User],
         DBRef(current_user.get_collection_name(), current_user.id),
