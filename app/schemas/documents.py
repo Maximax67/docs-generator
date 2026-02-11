@@ -24,6 +24,7 @@ class DocumentVariable(BaseModel):
     saved_value: Any = Field(
         None, description="User's previously saved value (if authenticated and saved)"
     )
+    order: int = Field(..., description="Input field order")
 
 
 class DocumentVariables(BaseModel):

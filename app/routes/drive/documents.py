@@ -49,6 +49,7 @@ from beanie import Link
 from app.enums import FORMAT_TO_MIME, DocumentResponseFormat
 from app.schemas.auth import AuthorizedUser
 from app.services.scopes import require_document_access
+from app.constants import DEFAULT_VARIABLE_ORDER
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -183,6 +184,7 @@ async def get_document(
                 allow_save=var_info.get("allow_save", False),
                 scope=var_info.get("scope"),
                 saved_value=var_info.get("saved_value"),
+                order=var_info.get("order", DEFAULT_VARIABLE_ORDER),
             )
         )
 
@@ -275,6 +277,7 @@ async def get_variables_for_document(
                 allow_save=var_info.get("allow_save", False),
                 scope=var_info.get("scope"),
                 saved_value=var_info.get("saved_value"),
+                order=var_info.get("order", DEFAULT_VARIABLE_ORDER),
             )
         )
 
