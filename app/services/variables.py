@@ -7,6 +7,7 @@ from jsonschema import ValidationError as JsonSchemaValidationError
 from app.models import Variable, SavedVariable
 from app.services.google_drive import get_item_path
 from app.exceptions import ValidationErrorsException
+from app.constants import DEFAULT_VARIABLE_ORDER
 
 
 async def get_effective_variables_for_document(
@@ -85,6 +86,7 @@ async def get_effective_variables_for_document(
                 "allow_save": var.allow_save,
                 "scope": var.scope,
                 "saved_value": saved_values.get(var_name),
+                "order": var.order,
             }
         else:
             # Variable not in database, accept any user input
@@ -95,6 +97,7 @@ async def get_effective_variables_for_document(
                 "allow_save": False,
                 "scope": None,
                 "saved_value": None,
+                "order": DEFAULT_VARIABLE_ORDER,
             }
 
     return result
