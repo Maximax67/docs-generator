@@ -3,6 +3,7 @@ import json
 from typing import Any
 import uuid
 from zoneinfo import ZoneInfo
+from lesya import Lesya, Gender  # type: ignore[import-untyped]
 
 import jinja2
 
@@ -103,6 +104,25 @@ def uuid4() -> str:
     return str(uuid.uuid4())
 
 
+def decline_uk_name(name: str, case: str = "родовий", gender: str | None = None) -> str:
+    lesya_gender = None
+    if gender:
+        gender_lower = gender.lower()
+        if gender_lower == "male":
+            lesya_gender = Gender.MALE
+        elif gender_lower == "female":
+            lesya_gender = Gender.FEMALE
+
+    person = Lesya(name, gender=lesya_gender)
+
+    if not person.forms:
+        return name
+
+    declined_name: str = person.forms.get(case.lower(), name)
+
+    return declined_name
+
+
 jinja_env = jinja2.Environment()
 jinja_env.filters.update(
     {
@@ -112,6 +132,7 @@ jinja_env.filters.update(
         "join_non_empty": join_non_empty,
         "format_currency": format_currency,
         "pluralize": pluralize,
+        "decline_uk_name": decline_uk_name,
     }
 )
 
