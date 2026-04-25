@@ -1,7 +1,11 @@
 # ===== Stage 1: Build frontend =====
 FROM node:20-alpine AS frontend-builder
 
-RUN apk add --no-cache git
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN apk add --no-cache git libc6-compat
 
 WORKDIR /frontend
 
@@ -18,7 +22,7 @@ ENV NEXT_PUBLIC_POSTMAN_URL=${NEXT_PUBLIC_POSTMAN_URL}
 ENV NEXT_PUBLIC_ACCESS_TOKEN_LIFETIME_MINUTES=${NEXT_PUBLIC_ACCESS_TOKEN_LIFETIME_MINUTES}
 
 RUN git clone --depth 1 https://github.com/Maximax67/docs-generator-frontend .
-RUN npm install && npm run build
+RUN pnpm install --frozen-lockfile && pnpm build
 
 # ===== Stage 2: Build backend =====
 FROM python:3.12-slim
