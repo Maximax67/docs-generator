@@ -21,8 +21,14 @@ ENV NEXT_PUBLIC_SWAGGER_URL=${NEXT_PUBLIC_SWAGGER_URL}
 ENV NEXT_PUBLIC_POSTMAN_URL=${NEXT_PUBLIC_POSTMAN_URL}
 ENV NEXT_PUBLIC_ACCESS_TOKEN_LIFETIME_MINUTES=${NEXT_PUBLIC_ACCESS_TOKEN_LIFETIME_MINUTES}
 
-ARG CACHE_BUST=1
-RUN git clone --depth 1 https://github.com/Maximax67/docs-generator-frontend .
+ARG FRONTEND_REPO
+ARG FRONTEND_SHA
+
+# If either the Repo URL or the SHA changes, this layer invalidates.
+# If both stay the same, Docker skips this entire stage.
+RUN git clone --depth 1 ${FRONTEND_REPO} . && \
+    echo "Cloned ${FRONTEND_REPO} at commit ${FRONTEND_SHA}"
+
 RUN pnpm install --frozen-lockfile && pnpm build
 
 # ===== Stage 2: Build backend =====

@@ -10,10 +10,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     environment: ${{ (github.ref_name == 'main' || github.event_name == 'repository_dispatch') && 'Production' || 'Development' }}
+    env:
+      FRONTEND_REPO: "https://github.com/Maximax67/docs-generator-frontend.git"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Get Frontend Latest SHA
+        id: frontend_sha
+        run: |
+          SHA=$(git ls-remote ${{ env.FRONTEND_REPO }} HEAD | awk '{ print $1 }')
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
@@ -45,7 +53,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            CACHE_BUST=${{ github.sha }}
+            FRONTEND_REPO=${{ env.FRONTEND_REPO }}
+            FRONTEND_SHA=${{ steps.frontend_sha.outputs.sha }}
             NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
             NEXT_PUBLIC_FRONTEND_URL=${{ secrets.NEXT_PUBLIC_FRONTEND_URL }}
             NEXT_PUBLIC_SWAGGER_URL=${{ secrets.NEXT_PUBLIC_SWAGGER_URL }}
