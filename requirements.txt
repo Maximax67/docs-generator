@@ -1,11 +1,8 @@
-aiogram
 beanie
 cachetools
 docxtpl
 fastapi
 google_api_python_client
-openpyxl
-pandas
 pybloom_live
 pydantic
 pydantic_settings
