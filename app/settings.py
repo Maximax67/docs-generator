@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     MAX_PROCESS_CPU_TIME: int | None = None
     MAX_CONVERSION_TIME: int | None = None
 
+    MAX_IMAGE_FETCH_TIME: int | None = 10
+    MAX_IMAGE_SIZE: int | None = 5 * 1024 * 1024  # 5 MiB
+
     JWT_SECRET: SecretStr
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRES_MINUTES: int = 10
