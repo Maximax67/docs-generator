@@ -416,7 +416,7 @@ async def get_saved_variables(
     response_model=DetailResponse,
     responses={401: common_responses[401]},
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def delete_all_saved_variables(
     request: Request,
     response: Response,
@@ -452,7 +452,7 @@ async def delete_all_saved_variables(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def batch_reorder(
     body: VariableBatchReorderRequest,
     request: Request,
@@ -527,7 +527,7 @@ async def batch_reorder(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def batch_save_variables(
     body: VariableBatchSaveRequest,
     request: Request,

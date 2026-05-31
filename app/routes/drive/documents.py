@@ -137,7 +137,7 @@ def handle_resource_limit_error(e: ResourceLimitError) -> HTTPException:
     response_model=DocumentDetails,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_document(
     document_id: str,
     request: Request,
@@ -202,7 +202,7 @@ async def get_document(
     response_model=DriveFile,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_document_file(
     document_id: str,
     request: Request,
@@ -229,7 +229,7 @@ async def get_document_file(
     response_model=DocumentVariables,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_variables_for_document(
     document_id: str,
     request: Request,
@@ -291,7 +291,7 @@ async def get_variables_for_document(
     "/{document_id}/raw",
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_raw_document(
     document_id: str,
     request: Request,
@@ -350,7 +350,7 @@ async def get_raw_document(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def preview_document(
     document_id: str,
     background_tasks: BackgroundTasks,
@@ -411,7 +411,7 @@ async def preview_document(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def validate_provided_variables_for_document(
     document_id: str,
     body: GenerateDocumentRequest,
@@ -469,7 +469,7 @@ async def validate_provided_variables_for_document(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def generate_document_with_variables(
     document_id: str,
     body: GenerateDocumentRequest,

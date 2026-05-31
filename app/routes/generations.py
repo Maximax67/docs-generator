@@ -132,7 +132,7 @@ async def get_generations(
     response_model=DetailResponse,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def delete_user_generated_documents(
     request: Request,
     response: Response,
@@ -203,7 +203,7 @@ async def get_generation_by_id(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def regenerate_by_id(
     generation_id: PydanticObjectId,
     body: RegenerateDocumentRequest,

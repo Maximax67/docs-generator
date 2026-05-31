@@ -59,7 +59,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def register(
     request: Request, response: Response, body: RegisterRequest
 ) -> DetailResponse:
@@ -168,7 +168,7 @@ async def logout(request: Request, response: Response) -> DetailResponse:
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def list_sessions(
     request: Request, response: Response, current_user: User = Depends(get_current_user)
 ) -> list[SessionInfo]:
@@ -239,7 +239,7 @@ async def logout_all(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def get_session(
     session_id: PydanticObjectId,
     request: Request,
@@ -285,7 +285,7 @@ async def get_session(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def revoke_session(
     session_id: PydanticObjectId,
     request: Request,
@@ -325,7 +325,7 @@ async def revoke_session(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def refresh(request: Request, response: Response) -> DetailResponse:
     refresh_token = request.cookies.get(settings.REFRESH_COOKIE_NAME)
     if not refresh_token:
@@ -503,7 +503,7 @@ async def verify_email(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def email_change(
     request: Request,
     response: Response,
@@ -592,7 +592,7 @@ async def password_forgot(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def password_reset(
     request: Request, response: Response, token: str, body: PasswordResetRequest
 ) -> DetailResponse:
@@ -636,7 +636,7 @@ async def password_reset(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def password_change(
     request: Request, response: Response, body: PasswordChangeRequest
 ) -> DetailResponse:

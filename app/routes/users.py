@@ -115,7 +115,7 @@ async def get_all_users(
     },
     dependencies=[Depends(require_god)],
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def create_user(
     request: Request, response: Response, user_data: UserCreateRequest
 ) -> User:
@@ -219,7 +219,7 @@ async def get_user(
     response_model=UserResponse,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def update_user(
     user_id: PydanticObjectId,
     user_update: UserUpdateRequest,
@@ -264,7 +264,7 @@ async def update_user(
     response_model=DetailResponse,
     responses=common_responses,
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def delete_user(
     user_id: PydanticObjectId,
     request: Request,
@@ -308,7 +308,7 @@ async def delete_user(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def ban_user(
     user_id: PydanticObjectId,
     request: Request,
@@ -333,7 +333,7 @@ async def ban_user(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def unban_user(
     user_id: PydanticObjectId,
     request: Request,
@@ -360,7 +360,7 @@ async def unban_user(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def verify_email(
     user_id: PydanticObjectId,
     request: Request,
@@ -391,7 +391,7 @@ async def verify_email(
         },
     },
 )
-@limiter.limit("5/minute")
+@limiter.limit("10/minute")
 async def revoke_email_verification(
     user_id: PydanticObjectId,
     request: Request,
