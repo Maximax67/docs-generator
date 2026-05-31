@@ -1,5 +1,5 @@
 # ===== Stage 1: Build frontend =====
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -26,8 +26,7 @@ ARG FRONTEND_SHA
 
 # If either the Repo URL or the SHA changes, this layer invalidates.
 # If both stay the same, Docker skips this entire stage.
-RUN git clone --depth 1 ${FRONTEND_REPO} . && \
-    echo "Cloned ${FRONTEND_REPO} at commit ${FRONTEND_SHA}"
+RUN git clone --depth 1 ${FRONTEND_REPO} .
 
 RUN pnpm install --frozen-lockfile && pnpm build
 
